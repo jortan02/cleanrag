@@ -1,0 +1,20 @@
+{
+  "name": "CleanRAG Dev Environment",
+  "image": "downloads.unstructured.io/unstructured-io/unstructured:latest",
+  "postCreateCommand": "pip install --no-cache-dir numpy pandas streamlit llama-index ragchecker faiss-cpu sentence-transformers python-dotenv",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "njpwerner.autodocstring",
+        "visualstudioexptteam.vscodeintellicode",
+      ]
+    }
+  },
+  "forwardPorts": [
+    8501
+  ]
+  // "remoteUser": "root" // or the user inside the unstructured image
+}

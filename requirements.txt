@@ -1,0 +1,10 @@
+numpy
+pandas
+streamlit
+llama-index
+ragchecker
+faiss-cpu
+sentence-transformers
+unstructured[all-docs]
+python-dotenv
+torch
