@@ -1,7 +1,7 @@
 {
   "name": "CleanRAG Dev Environment",
   "image": "downloads.unstructured.io/unstructured-io/unstructured:latest",
-  "postCreateCommand": "pip install --no-cache-dir numpy pandas streamlit llama-index ragchecker faiss-cpu sentence-transformers python-dotenv unstructured[all-docs]",
+  "postCreateCommand": "pip install --no-cache-dir -r requirements.txt",
   "customizations": {
     "vscode": {
       "extensions": [

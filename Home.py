@@ -1,10 +1,16 @@
 import streamlit as st
 import asyncio
 import torch
+from utils.api_config import is_app_configured
+from utils.data_utils import initialize_session_state
 
+initialize_session_state()
 torch.classes.__path__ = []
 
 st.set_page_config(page_title="CleanRAG - Overview", page_icon="🏠", layout="wide")
+
+# if not is_app_configured():
+#     st.navigation(["Home.py", "pages/0_Setup.py"])
 
 st.title("Welcome to CleanRAG 🧹")
 st.markdown(
@@ -23,8 +29,8 @@ you need to ensure high-quality document retrieval and generation.
 - 📊 Visualize performance metrics and results
 
 #### Quick Start Guide:
-1. **Upload Documents**: Go to the Upload & Ingest page to add your documents
-2. **Configure Settings**: Adjust your RAG parameters in the Settings page
+1. **Configure API**: Go to the Setup page to add your OpenAI API key
+2. **Upload Documents**: Go to the Upload & Ingest page to add your documents
 3. **Run Diagnostics**: Use the Diagnostics page to evaluate your pipeline
 4. **Test Queries**: Try out searches in the Search & Exploration page
 5. **View Results**: Check the Results & Visualization page for insights
@@ -35,14 +41,17 @@ you need to ensure high-quality document retrieval and generation.
 - **Interactive Debugging**: Real-time analysis of retrieval behavior
 - **Performance Visualization**: Clear insights into your pipeline's effectiveness
 - **Configuration Management**: Easy adjustment of RAG parameters
-
-Get started by navigating to the Upload & Ingest page to begin processing your documents!
 """
 )
 
 # Add a call-to-action button
-if st.button("🚀 Start with Document Upload", type="primary"):
-    st.switch_page("pages/2_Upload_Ingest.py")
+if not is_app_configured():
+    st.warning(
+        "⚠️ Please configure your OpenAI API key in the Setup page before proceeding."
+    )
+
+if st.button("⚙️ Go to Setup", type="primary"):
+    st.switch_page("pages/0_Setup.py")
 
 try:
     asyncio.get_running_loop()
