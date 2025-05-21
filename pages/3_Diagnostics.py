@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
+from utils.data_utils import initialize_session_state
 
-st.set_page_config(
-    page_title="CleanRAG - Diagnostics",
-    page_icon="🔍",
-    layout="wide"
-)
+initialize_session_state()
+
+
+st.set_page_config(page_title="CleanRAG - Diagnostics", page_icon="🔍", layout="wide")
 
 st.title("Pipeline Diagnostics 🔍")
 
@@ -28,41 +28,42 @@ with col4:
 st.header("Retrieval Analysis")
 
 # Sample data for visualization
-retrieval_data = pd.DataFrame({
-    'Query': [f'Query {i}' for i in range(10)],
-    'Relevance Score': np.random.uniform(0.5, 1.0, 10),
-    'Response Time': np.random.uniform(0.1, 0.5, 10),
-    'Chunks Retrieved': np.random.randint(3, 8, 10)
-})
+retrieval_data = pd.DataFrame(
+    {
+        "Query": [f"Query {i}" for i in range(10)],
+        "Relevance Score": np.random.uniform(0.5, 1.0, 10),
+        "Response Time": np.random.uniform(0.1, 0.5, 10),
+        "Chunks Retrieved": np.random.randint(3, 8, 10),
+    }
+)
 
 # Relevance Score Distribution
 fig1 = px.histogram(
-    retrieval_data,
-    x='Relevance Score',
-    title='Relevance Score Distribution',
-    nbins=20
+    retrieval_data, x="Relevance Score", title="Relevance Score Distribution", nbins=20
 )
 st.plotly_chart(fig1, use_container_width=True)
 
 # Response Time vs Relevance
 fig2 = px.scatter(
     retrieval_data,
-    x='Response Time',
-    y='Relevance Score',
-    title='Response Time vs Relevance Score',
-    size='Chunks Retrieved'
+    x="Response Time",
+    y="Relevance Score",
+    title="Response Time vs Relevance Score",
+    size="Chunks Retrieved",
 )
 st.plotly_chart(fig2, use_container_width=True)
 
 # Mismatch Analysis
 st.header("Mismatch Analysis")
-st.markdown("""
+st.markdown(
+    """
 ### Common Issues Detected:
 - **Irrelevant Retrievals**: 12 instances
 - **Missing Context**: 5 instances
 - **Duplicate Chunks**: 3 instances
 - **Out-of-Context Answers**: 8 instances
-""")
+"""
+)
 
 # Detailed Analysis
 st.header("Detailed Analysis")
@@ -70,19 +71,22 @@ analysis_tab1, analysis_tab2 = st.tabs(["Query Analysis", "Chunk Analysis"])
 
 with analysis_tab1:
     st.dataframe(retrieval_data)
-    
+
 with analysis_tab2:
-    chunk_data = pd.DataFrame({
-        'Chunk ID': [f'C{i}' for i in range(10)],
-        'Usage Count': np.random.randint(1, 20, 10),
-        'Avg. Relevance': np.random.uniform(0.5, 1.0, 10),
-        'Source Document': [f'Doc {i%3 + 1}' for i in range(10)]
-    })
+    chunk_data = pd.DataFrame(
+        {
+            "Chunk ID": [f"C{i}" for i in range(10)],
+            "Usage Count": np.random.randint(1, 20, 10),
+            "Avg. Relevance": np.random.uniform(0.5, 1.0, 10),
+            "Source Document": [f"Doc {i%3 + 1}" for i in range(10)],
+        }
+    )
     st.dataframe(chunk_data)
 
 # Recommendations
 st.header("Recommendations")
-st.markdown("""
+st.markdown(
+    """
 ### Suggested Improvements:
 1. **Chunk Size Optimization**
    - Current chunk size may be too large
@@ -99,4 +103,5 @@ st.markdown("""
 4. **Context Window**
    - Current window size is optimal
    - No changes recommended
-""") 
+"""
+)

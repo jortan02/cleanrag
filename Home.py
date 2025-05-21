@@ -1,18 +1,11 @@
 import streamlit as st
-import os
-import torch
+import asyncio
 
-torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)] 
-
-
-st.set_page_config(
-    page_title="CleanRAG - Overview",
-    page_icon="🏠",
-    layout="wide"
-)
+st.set_page_config(page_title="CleanRAG - Overview", page_icon="🏠", layout="wide")
 
 st.title("Welcome to CleanRAG 🧹")
-st.markdown("""
+st.markdown(
+    """
 ### Your RAG Pipeline Optimization Tool
 
 CleanRAG helps you analyze, optimize, and debug your Retrieval-Augmented Generation (RAG) pipeline. 
@@ -41,8 +34,14 @@ you need to ensure high-quality document retrieval and generation.
 - **Configuration Management**: Easy adjustment of RAG parameters
 
 Get started by navigating to the Upload & Ingest page to begin processing your documents!
-""")
+"""
+)
 
 # Add a call-to-action button
 if st.button("🚀 Start with Document Upload", type="primary"):
-    st.switch_page("pages/2_Upload_Ingest.py") 
+    st.switch_page("pages/2_Upload_Ingest.py")
+
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())

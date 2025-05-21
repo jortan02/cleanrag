@@ -1,7 +1,7 @@
 {
   "name": "CleanRAG Dev Environment",
   "image": "downloads.unstructured.io/unstructured-io/unstructured:latest",
-  "postCreateCommand": "pip install --no-cache-dir numpy pandas streamlit llama-index ragchecker faiss-cpu sentence-transformers python-dotenv",
+  "postCreateCommand": "pip install --no-cache-dir numpy pandas streamlit llama-index ragchecker faiss-cpu sentence-transformers python-dotenv unstructured[all-docs]",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -9,7 +9,7 @@
         "ms-python.vscode-pylance",
         "ms-toolsai.jupyter",
         "njpwerner.autodocstring",
-        "visualstudioexptteam.vscodeintellicode",
+        "ms-python.black-formatter"
       ]
     }
   },
