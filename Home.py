@@ -1,5 +1,8 @@
 import streamlit as st
 import asyncio
+import torch
+
+torch.classes.__path__ = []
 
 st.set_page_config(page_title="CleanRAG - Overview", page_icon="🏠", layout="wide")
 
