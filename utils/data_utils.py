@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+from fastapi import UploadFile
 import streamlit as st
 from pathlib import Path
 import pandas as pd
@@ -9,17 +10,17 @@ from config import (
     DEFAULT_BUFFER_SIZE,
     DEFAULT_BREAKPOINT_THRESHOLD
 )
-
+import hashlib
 
 def initialize_session_state():
     """Initialize all session state variables used across the application."""
     # Document processing state
     if "processed_documents" not in st.session_state:
-        st.session_state.processed_documents = {}
+        st.session_state.processed_documents = []
 
     # Uploaded files state
     if "uploaded_files" not in st.session_state:
-        st.session_state.uploaded_files = {}
+        st.session_state.uploaded_files = []
 
     # QA test set state
     if "qa_data" not in st.session_state:
@@ -28,9 +29,7 @@ def initialize_session_state():
     # API and model settings
     if "api_keys" not in st.session_state:
         st.session_state.api_keys = {
-            "openai": "",
-            "anthropic": "",
-            "huggingface": ""
+            "openai": ""
         }
     if "model_settings" not in st.session_state:
         st.session_state.model_settings = {
@@ -54,7 +53,6 @@ def initialize_session_state():
         }
     if "vector_store_type" not in st.session_state:
         st.session_state.vector_store_type = "simple"
-
 
 def save_processed_chunks(filename: str, chunks: List[DocumentChunk]):
     """Save processed chunks to session state."""
@@ -80,9 +78,9 @@ def get_chunk_embeddings(filename: str = None) -> Dict[str, List[Any]]:
     return st.session_state.chunk_embeddings
 
 
-def store_processed_document(filename: str, document_data: Dict[str, Any]):
+def store_processed_document(document_data):
     """Store processed document data in session state."""
-    st.session_state.processed_documents[filename] = document_data
+    st.session_state.processed_documents.append(document_data)
 
 
 def get_processed_document(filename: str) -> Optional[Dict[str, Any]]:
@@ -90,15 +88,13 @@ def get_processed_document(filename: str) -> Optional[Dict[str, Any]]:
     return st.session_state.processed_documents.get(filename)
 
 
-def get_all_processed_documents() -> Dict[str, Dict[str, Any]]:
+def get_all_processed_documents() -> List[Dict[str, Any]]:
     """Get all processed documents from session state."""
     return st.session_state.processed_documents
-
 
 def store_qa_data(qa_data: pd.DataFrame):
     """Store QA test set data in session state."""
     st.session_state.qa_data = qa_data
-
 
 def get_qa_data() -> Optional[pd.DataFrame]:
     """Retrieve QA test set data from session state."""
@@ -107,7 +103,7 @@ def get_qa_data() -> Optional[pd.DataFrame]:
 
 def clear_processed_documents():
     """Clear all processed documents from session state."""
-    st.session_state.processed_documents = {}
+    st.session_state.processed_documents = []
 
 
 def clear_qa_data():
@@ -166,25 +162,13 @@ def save_evaluation_results(results: Dict[str, Any]):
 def get_evaluation_results() -> Dict[str, Any]:
     """Get evaluation results from session state."""
     return st.session_state.evaluation_results
-
-
-def store_uploaded_file(file):
-    """Store uploaded file in session state."""
-    file_data = {
-        "name": file.name,
-        "type": file.type,
-        "size": file.size,
-        "content": file.getvalue()
-    }
-    st.session_state.uploaded_files[file.name] = file_data
-
+    
+def store_uploaded_files(files: List[UploadFile]):
+    """Store uploaded files in session state."""
+    st.session_state.uploaded_files = files
 
 def get_uploaded_files():
-    """Get all uploaded files from session state.
-    
-    Returns:
-        dict: Dictionary of file data indexed by filename
-    """
+    """Get all uploaded files from session state."""
     return st.session_state.uploaded_files
 
 

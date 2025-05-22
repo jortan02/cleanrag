@@ -1,6 +1,5 @@
 import streamlit as st
 import asyncio
-import torch
 from utils.api_config import is_app_configured
 from utils.data_utils import (
     initialize_session_state,
@@ -10,18 +9,16 @@ from utils.data_utils import (
     get_qa_data,
     update_processing_options,
     get_processing_options,
-    clear_processed_documents,
-    clear_qa_data,
     get_uploaded_files,
-    store_uploaded_file,
-    clear_uploaded_files,
+    store_uploaded_files,
+    clear_processed_documents
 )
 from utils.api_config import (
     update_api_key,
     get_api_key,
     update_model_settings,
     get_model_settings,
-    validate_openai_key
+    validate_openai_key,
 )
 from utils.document_utils import (
     extract_text_from_file,
@@ -32,7 +29,9 @@ from utils.document_utils import (
     VectorStoreType,
 )
 from llama_index.core import Document
+import pandas as pd
 from config import SUPPORTED_FILE_TYPES, SUPPORTED_QA_FILE_TYPES
+
 
 # Callback functions
 def handle_api_key_change():
@@ -46,21 +45,16 @@ def handle_api_key_change():
     else:
         st.session_state.api_key_valid = False
 
+
 def handle_model_change():
     """Handle model selection changes"""
     if st.session_state.get("api_key_valid", False):
         update_model_settings(
             embedding_model=st.session_state.embedding_model,
             llm_model=st.session_state.llm_model,
-            llm_provider="openai"  # Since we only use OpenAI now
+            llm_provider="openai",  # Since we only use OpenAI now
         )
 
-def handle_file_upload():
-    """Handle file uploads"""
-    uploaded_files = st.session_state.file_uploader
-    if uploaded_files:
-        for file in uploaded_files:
-            store_uploaded_file(file)
 
 def handle_splitter_change():
     """Handle splitter type changes"""
@@ -71,8 +65,9 @@ def handle_splitter_change():
         current_options[0],  # param1
         current_options[1],  # param2
         st.session_state.splitter_type,  # new splitter type
-        current_options[3]  # vector_store_type
+        current_options[3],  # vector_store_type
     )
+
 
 def handle_processing_options_change():
     """Handle processing options changes"""
@@ -81,19 +76,19 @@ def handle_processing_options_change():
             st.session_state.chunk_size,
             st.session_state.chunk_overlap,
             st.session_state.splitter_type,
-            st.session_state.vector_store_type
+            st.session_state.vector_store_type,
         )
     else:  # semantic
         update_processing_options(
             st.session_state.buffer_size,
             st.session_state.breakpoint_threshold,
             st.session_state.splitter_type,
-            st.session_state.vector_store_type
+            st.session_state.vector_store_type,
         )
+
 
 # Initialize session state
 initialize_session_state()
-torch.classes.__path__ = []
 
 # Setup asyncio event loop
 try:
@@ -104,25 +99,30 @@ except RuntimeError:
 # Page config
 st.set_page_config(
     page_title="CleanRAG",
-    page_icon="📚",
+    page_icon="🧹",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # Navigation
-st.sidebar.title("Navigation")
+st.sidebar.markdown(
+    """
+### 📚 Navigation
 
-st.sidebar.markdown('''
-- [Home](#home)
-- [Setup](#setup)
-- [Upload](#upload)
-- [Chat](#chat)
-- [Evaluate](#evaluate)
-''', unsafe_allow_html=True)
+- 🏠 [**Home**](#home)
+- ⚙️ [**Setup**](#setup)
+- 📁 [**Upload**](#upload)
+- 💬 [**Chat**](#chat)
+- 📊 [**Evaluate**](#evaluate)
+""",
+    unsafe_allow_html=True,
+)
+
 
 # Home Section
-st.header('Welcome to CleanRAG 🧹', anchor="home")
-st.markdown("""
+st.header("Welcome to CleanRAG 🧹", anchor="home")
+st.markdown(
+    """
 ### Your RAG Pipeline Optimization Tool
 
 CleanRAG helps you analyze, optimize, and debug your Retrieval-Augmented Generation (RAG) pipeline.
@@ -134,32 +134,45 @@ CleanRAG helps you analyze, optimize, and debug your Retrieval-Augmented Generat
 4. **Evaluate**: Analyze your RAG pipeline's performance
 
 #### Current Status:
-""")
+"""
+)
 
 # Show current status
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric(
         "API Key",
-        "✅ Configured" if st.session_state.get("api_key_valid", False) else "❌ Not Configured", border=True
+        (
+            "✅ Configured"
+            if st.session_state.get("api_key_valid", False)
+            else "❌ Not Configured"
+        ),
+        border=True,
     )
 with col2:
     docs = get_all_processed_documents()
     st.metric(
-        "Documents",
-        f"{len(docs)} Processed" if docs else "No Documents", border=True
+        "Documents", f"{len(docs)} Processed" if docs else "No Documents", border=True
     )
 with col3:
     st.metric(
         "Index",
-        "✅ Ready" if "index" in st.session_state else "❌ Not Created", border=True
+        "✅ Ready" if "index" in st.session_state else "❌ Not Created",
+        border=True,
+    )
+with col4:
+    qa_data = get_qa_data()
+    st.metric(
+        "QA Pairs",
+        f"{len(qa_data)} Loaded" if qa_data is not None else "No QA Data",
+        border=True,
     )
 
 # Setup Section
 st.header("Setup ⚙️", anchor="setup")
 
 # API Keys Section
-st.header("API Keys")
+st.header("API Key")
 
 # OpenAI API Key with callback
 api_key = st.text_input(
@@ -168,7 +181,7 @@ api_key = st.text_input(
     type="password",
     help="Required for GPT models and OpenAI embeddings",
     key="openai_key",
-    on_change=handle_api_key_change
+    on_change=handle_api_key_change,
 )
 
 # Show validation status
@@ -180,67 +193,50 @@ if "api_key_valid" in st.session_state:
 else:
     st.warning("⚠️ Please enter your OpenAI API key to continue")
 
-# Only show model settings if API key is valid
-if st.session_state.get("api_key_valid", False):
-    # Model Settings Section
-    st.header("Model Settings")
-    
-    # Get current settings
-    current_settings = get_model_settings()
-    
-    # LLM Model Selection with callback
-    st.selectbox(
-        "OpenAI Model",
-        options=[
-            "gpt-3.5-turbo",
-            "gpt-4",
-            "gpt-4-turbo-preview"
-        ],
-        index=0 if current_settings["llm_model"] == "gpt-3.5-turbo" else 1,
-        help="Select the OpenAI model to use",
-        key="llm_model",
-        on_change=handle_model_change
-    )
-    
-    # Embedding Model Selection with callback
-    st.selectbox(
-        "Embedding Model",
-        options=[
-            "text-embedding-3-small",
-            "text-embedding-3-large"
-        ],
-        index=0 if current_settings["embedding_model"] == "text-embedding-3-small" else 1,
-        help="Select the OpenAI embedding model to use",
-        key="embedding_model",
-        on_change=handle_model_change
-    )
+# Model Settings Section
+st.header("Model Settings")
+
+# Get current settings
+current_settings = get_model_settings()
+
+# LLM Model Selection with callback
+st.selectbox(
+    "OpenAI Model",
+    options=["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview"],
+    index=0 if current_settings["llm_model"] == "gpt-3.5-turbo" else 1,
+    help="Select the OpenAI model to use",
+    key="llm_model",
+    on_change=handle_model_change,
+    disabled=not is_app_configured()
+)
+
+# Embedding Model Selection with callback
+st.selectbox(
+    "Embedding Model",
+    options=["text-embedding-3-small", "text-embedding-3-large"],
+    index=(
+        0 if current_settings["embedding_model"] == "text-embedding-3-small" else 1
+    ),
+    help="Select the OpenAI embedding model to use",
+    key="embedding_model",
+    on_change=handle_model_change,
+    disabled=not is_app_configured()
+)
 
 # Upload Section
-st.header("Upload & Process 📤", anchor="upload")
+st.header("Upload & Process 📁", anchor="upload")
 
 # File upload section
 st.header("Upload Documents")
 
 # File uploader with callback
-st.file_uploader(
+uploaded_files = st.file_uploader(
     "Choose your documents",
     type=SUPPORTED_FILE_TYPES,
     accept_multiple_files=True,
     key="file_uploader",
-    on_change=handle_file_upload
 )
-
-# Display stored files count and delete all button
-stored_files = get_uploaded_files()
-if stored_files:
-    col1, col2 = st.columns([4, 1], vertical_alignment="center")
-    with col1:
-        st.markdown(f'<span style="font-size: 1.5em">📚</span> {len(stored_files)} Document{"s" if len(stored_files) > 1 else ""} Uploaded', unsafe_allow_html=True)
-    with col2:
-        st.write("")
-        if st.button("🗑️ Clear All Files", type="secondary", use_container_width=True):
-            clear_uploaded_files()
-            st.rerun()
+store_uploaded_files(uploaded_files)
 
 # Processing options
 st.header("Processing Options")
@@ -252,7 +248,7 @@ splitter_type = st.selectbox(
     format_func=lambda x: "Sentence-based" if x == "sentence" else "Semantic",
     help="Choose how to split documents. Sentence-based splits at sentence boundaries, while semantic splitting preserves document structure.",
     key="splitter_type",
-    on_change=handle_splitter_change
+    on_change=handle_splitter_change,
 )
 
 # Show different controls based on splitter type
@@ -267,7 +263,7 @@ if splitter_type == "sentence":
             step=100,
             help="Target size for each chunk in tokens",
             key="chunk_size",
-            on_change=handle_processing_options_change
+            on_change=handle_processing_options_change,
         )
     with col2:
         chunk_overlap = st.slider(
@@ -278,7 +274,7 @@ if splitter_type == "sentence":
             step=10,
             help="Number of tokens to overlap between chunks",
             key="chunk_overlap",
-            on_change=handle_processing_options_change
+            on_change=handle_processing_options_change,
         )
 else:  # semantic
     col1, col2 = st.columns(2)
@@ -291,7 +287,7 @@ else:  # semantic
             step=1,
             help="Number of sentences to buffer when splitting. Higher values may result in more natural splits.",
             key="buffer_size",
-            on_change=handle_processing_options_change
+            on_change=handle_processing_options_change,
         )
     with col2:
         breakpoint_threshold = st.slider(
@@ -302,7 +298,7 @@ else:  # semantic
             step=1,
             help="Percentile threshold for determining breakpoints. Higher values result in fewer splits.",
             key="breakpoint_threshold",
-            on_change=handle_processing_options_change
+            on_change=handle_processing_options_change,
         )
 
 # Vector store options with callback
@@ -312,85 +308,128 @@ vector_store_type = st.selectbox(
     format_func=lambda x: "Simple" if x == "simple" else "FAISS",
     help="Choose the vector store type. FAISS provides better performance for larger datasets.",
     key="vector_store_type",
-    on_change=handle_processing_options_change
+    on_change=handle_processing_options_change,
 )
 
 # Process button
-if st.button("Process Documents", type="primary"):
+stored_files = get_uploaded_files()
+if st.button("Process Documents", type="primary", disabled=not is_app_configured()):
+    clear_processed_documents()
     if stored_files:
         progress_bar = st.progress(0)
         status_text = st.empty()
-        
-        for i, (filename, file_data) in enumerate(stored_files.items()):
-            status_text.text(f"Processing {filename}...")
-            
+
+        for i, file in enumerate(stored_files):
+            status_text.text(f"Processing {file.name}...")
+
             try:
-                # Create a BytesIO object from the stored content
-                from io import BytesIO
-                file = BytesIO(file_data["content"])
-                file.name = filename
-                file.type = file_data["type"]
-                
                 # Extract text from file
                 text = extract_text_from_file(file)
-                
+
                 # Create LlamaIndex document
-                doc = Document(text=text, metadata={"filename": filename})
-                
+                doc = Document(text=text, metadata={"filename": file.name})
+
                 # Process into chunks with splitter-specific parameters
                 if st.session_state.splitter_type == "sentence":
                     kwargs = {
                         "chunk_size": st.session_state.chunk_size,
-                        "chunk_overlap": st.session_state.chunk_overlap
+                        "chunk_overlap": st.session_state.chunk_overlap,
                     }
                 else:  # semantic
                     kwargs = {
                         "buffer_size": st.session_state.buffer_size,
-                        "breakpoint_percentile_threshold": st.session_state.breakpoint_threshold
+                        "breakpoint_percentile_threshold": st.session_state.breakpoint_threshold,
                     }
-                
+
                 chunks = process_document(
-                    text, 
-                    splitter_type=st.session_state.splitter_type,
-                    **kwargs
+                    text, splitter_type=st.session_state.splitter_type, **kwargs
                 )
-                
+
                 # Get chunk statistics
                 stats = get_chunk_statistics(chunks)
-                
+
                 # Create chunk dataframe
                 chunk_df = create_chunk_dataframe(chunks)
-                
+
                 # Store results in session state
                 document_data = {
+                    "name": file.name,
                     "text": text,
                     "chunks": chunks,
                     "stats": stats,
                     "chunk_df": chunk_df,
                     "document": doc,  # Store the LlamaIndex document
                 }
-                store_processed_document(filename, document_data)
-                
+                store_processed_document(document_data)
+
                 progress_bar.progress((i + 1) / len(stored_files))
-                
+
             except Exception as e:
-                st.error(f"Error processing {filename}: {str(e)}")
-        
+                st.error(f"Error processing {file.name}: {str(e)}")
+
         # Create the index
         try:
-            documents = [doc_data["document"] for doc_data in get_all_processed_documents().values()]
+            documents = [
+                doc_data["document"] for doc_data in get_all_processed_documents()
+            ]
             if documents:
                 index = create_index_from_documents(
-                    documents,
-                    vector_store_type=st.session_state.vector_store_type
+                    documents, vector_store_type=st.session_state.vector_store_type
                 )
                 # Store the index in session state
                 st.session_state.index = index
                 st.success("Documents processed and indexed successfully!")
+            st.rerun()
         except Exception as e:
             st.error(f"Error creating index: {str(e)}")
     else:
         st.warning("Please upload at least one document.")
+        
+processed_docs = get_all_processed_documents()
+if processed_docs:
+    for i, doc_data in enumerate(processed_docs):
+        is_last = i == len(processed_docs) - 1
+        with st.expander(f"📄 {doc_data['name']}", expanded=is_last):
+            st.markdown("### Document Statistics")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Chunks", doc_data["stats"]["total_chunks"])
+            with col2:
+                st.metric(
+                    "Avg Chunk Size", f"{doc_data['stats']['avg_chunk_size']:.1f} words"
+                )
+            with col3:
+                st.metric("Total Words", doc_data["stats"]["total_words"])
+
+            st.markdown("### Chunk Details")
+            st.dataframe(doc_data["chunk_df"], use_container_width=True)
+
+# QA File upload section
+st.header("Upload QA Test Set")
+st.markdown(
+    """
+Upload a CSV file containing your QA test set. The file should have the following columns:
+- `question`: The question to ask
+- `answer`: The expected answer
+"""
+)
+
+# QA file uploader with callback
+qa_file = st.file_uploader(
+    "Choose your QA test set",
+    type=SUPPORTED_QA_FILE_TYPES,
+    key="qa_file_uploader",
+)
+qa_data = pd.read_csv(qa_file) if qa_file is not None else None
+prev_data = get_qa_data()
+store_qa_data(qa_data)
+if qa_data is not None and (prev_data is None or not qa_data.equals(prev_data)):
+    st.rerun()
+
+# Display QA data if available
+qa_data = get_qa_data()
+if qa_data is not None:
+    st.dataframe(qa_data.head(), use_container_width=True)
 
 # Chat Section
 st.header("Chat 💬", anchor="chat")

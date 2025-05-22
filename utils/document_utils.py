@@ -11,7 +11,6 @@ from llama_index.core import (
     StorageContext,
 )
 from llama_index.core.vector_stores import SimpleVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.core.node_parser import SentenceSplitter, SemanticSplitterNodeParser
 from llama_index.core import Document
 from llama_index.vector_stores.faiss import FaissVectorStore
@@ -21,7 +20,6 @@ import re
 import streamlit as st
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.llms.openai import OpenAI
-from llama_index.llms.anthropic import Anthropic
 from utils.api_config import get_api_key, get_model_settings
 
 
@@ -173,10 +171,7 @@ def create_index_from_documents(
             api_key=get_api_key("openai")
         )
     else:
-        # HuggingFace embedding
-        embedding_model = HuggingFaceEmbedding(
-            model_name=settings["embedding_model"]
-        )
+        raise Exception(f"Error: The embedding model \'{settings['embedding_model']}\' could not be found.")
     
     # Initialize LLM
     if settings["llm_provider"] == "openai":
@@ -184,11 +179,9 @@ def create_index_from_documents(
             model=settings["llm_model"],
             api_key=get_api_key("openai")
         )
-    else:  # anthropic
-        llm = Anthropic(
-            model=settings["llm_model"],
-            api_key=get_api_key("anthropic")
-        )
+    else:
+        raise Exception(f"Error: The LLM \'{settings['llm_provider']}\' could not be found.")
+
     
     # Create vector store
     if vector_store_type == "simple":

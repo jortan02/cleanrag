@@ -3,8 +3,5 @@ pandas
 llama-index
 llama-index-llms-openai
 llama-index-vector-stores-faiss
-sentence-transformers
-torch
-transformers
 faiss-cpu
 ragchecker

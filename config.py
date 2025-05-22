@@ -1,5 +1,3 @@
-import torch
-
 # Document processing settings
 DEFAULT_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 50
