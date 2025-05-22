@@ -4,4 +4,4 @@ llama-index
 llama-index-llms-openai
 llama-index-vector-stores-faiss
 faiss-cpu
-ragchecker
+ragas

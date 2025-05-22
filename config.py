@@ -15,4 +15,9 @@ DEFAULT_VECTOR_STORE_TYPE = "simple" # Options: "simple", "faiss"
 
 # --- File Type Settings ---
 SUPPORTED_FILE_TYPES = ["txt", "pdf", "docx"]
-SUPPORTED_QA_FILE_TYPES = ["csv"]
+
+# --- Column Names ---
+COL_QUESTION = "question"
+COL_ANSWER_GROUND_TRUTH = "answer"
+COL_CONTEXTS_GROUND_TRUTH = "ground_truth_contexts"
+

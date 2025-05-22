@@ -19,8 +19,8 @@ from utils.document_utils import (
     # VectorStoreType, # Not directly used here, but create_index_from_documents might
 )
 from utils.model_utils import generate_response
-from utils.evaluation_utils import evaluate_answers # Assuming it now takes sm if needed
-from config import SUPPORTED_FILE_TYPES, SUPPORTED_QA_FILE_TYPES
+from utils.evaluation_utils import run_ragas_evaluation
+from config import SUPPORTED_FILE_TYPES, COL_QUESTION, COL_ANSWER_GROUND_TRUTH, COL_CONTEXTS_GROUND_TRUTH
 
 # --- Initialize Session Manager ---
 # This MUST be one of the first Streamlit commands.
@@ -422,35 +422,47 @@ if processed_docs_display:
             st.dataframe(doc_data_item["chunk_df"], use_container_width=True, height=200)
 
 # QA File upload section
-st.subheader("Upload QA Test Set")
+st.subheader("Upload QA Test Set for Evaluation")
 st.markdown(
-    """
-    Upload a CSV file with `question` and `answer` columns.
+    f"""
+    Upload a CSV file. Required columns:
+    - `{COL_QUESTION}`: The question to ask the RAG system.
+    - `{COL_ANSWER_GROUND_TRUTH}`: Your ground truth or expected answer for the question.
+
+    Optional column for more detailed context evaluation:
+    - `{COL_CONTEXTS_GROUND_TRUTH}`: A list of ideal context strings that should support the answer.
+      Format this cell as a string representation of a list (e.g., `["ideal context 1 text", "another ideal context"]`)
+      or a single string if there's only one ideal context.
+      Providing this enables more effective 'Context Recall' evaluation.
     """
 )
 
 qa_file_widget = st.file_uploader(
-    "Choose your QA test set",
-    type=SUPPORTED_QA_FILE_TYPES,
-    key="qa_file_uploader_widget", # Widget key
+    "Choose your QA test set (CSV)",
+    type=["csv"],
+    key="qa_file_uploader_widget",
     disabled=not app_is_configured,
 )
 
 if qa_file_widget is not None:
     try:
         new_qa_data = pd.read_csv(qa_file_widget)
-        if "question" not in new_qa_data.columns or "answer" not in new_qa_data.columns:
-            st.error("QA file must contain 'question' and 'answer' columns.")
+        # Check for required columns
+        if COL_QUESTION not in new_qa_data.columns or COL_ANSWER_GROUND_TRUTH not in new_qa_data.columns:
+            st.error(f"QA file must contain '{COL_QUESTION}' and '{COL_ANSWER_GROUND_TRUTH}' columns.")
+            # Optionally clear previously loaded data if new upload is invalid
+            # sm.store_qa_data(None) 
         else:
             prev_qa_data = sm.get_qa_data()
-            # Store if new or different from previous
             if prev_qa_data is None or not new_qa_data.equals(prev_qa_data):
                 sm.store_qa_data(new_qa_data)
                 st.success(f"QA test set '{qa_file_widget.name}' loaded successfully.")
-                st.rerun() # Rerun to update display if necessary
+                if COL_CONTEXTS_GROUND_TRUTH in new_qa_data.columns and new_qa_data[COL_CONTEXTS_GROUND_TRUTH].notna().any():
+                    st.info(f"Optional '{COL_CONTEXTS_GROUND_TRUTH}' column detected and will be used for evaluation.")
+                st.rerun()
     except Exception as e:
-        st.error(f"Error reading QA file: {e}")
-        sm.store_qa_data(None) # Clear if error
+        st.error(f"Error reading or processing QA file: {e}")
+        sm.store_qa_data(None) # Clear QA data in session manager on error
 
 # Display QA data if available
 current_qa_data_df = sm.get_qa_data()
@@ -499,26 +511,72 @@ if st.button("Clear Chat History", use_container_width=True, disabled=not chat_h
     st.rerun()
 
 # --- Evaluate Section ---
-st.header("Evaluate 📊", anchor="evaluate")
+st.header("Evaluate RAG Pipeline 📊", anchor="evaluate")
 
-if current_qa_data_df is not None and sm.index is not None:
-    if st.button("Run Evaluation", disabled=not app_is_configured):
-        with st.spinner("Running evaluation... This may take a while."):
+current_qa_data_df = sm.get_qa_data()
+app_is_configured = is_app_configured(sm)
+
+if current_qa_data_df is not None and not current_qa_data_df.empty and sm.index is not None:
+    if st.button("Run Evaluation with Ragas", type="primary", disabled=not app_is_configured):
+        with st.spinner("Generating RAG outputs and running Ragas evaluation... This may take a while and consume API credits."):
             try:
-                # Ensure LlamaIndex settings are configured before evaluation
-                configure_llama_index_settings(sm)
+                # 1. Configure LlamaIndex Settings for *your* RAG pipeline
+                configure_llama_index_settings(sm) 
                 if not Settings.llm or not Settings.embed_model:
-                     st.error("LLM or Embedding Model not configured. Cannot run evaluation.")
+                     st.error("LlamaIndex LLM or Embedding Model not configured. Cannot run evaluation.")
                 else:
-                    eval_results_df = evaluate_answers(sm) # Assuming evaluate_answers now takes sm
-                    st.subheader("Evaluation Results")
+                    # 2. Ensure OPENAI_API_KEY is in env for Ragas's own evaluators
+                    import os
+                    openai_api_key = sm.get_api_key("openai")
+                    if openai_api_key and not os.getenv("OPENAI_API_KEY"):
+                        # Only set it if it's not already there to avoid overriding other settings
+                        os.environ["OPENAI_API_KEY"] = openai_api_key
+                        print("Temporarily set OPENAI_API_KEY environment variable from SessionManager for Ragas.")
+                    elif not openai_api_key and not os.getenv("OPENAI_API_KEY"):
+                        st.warning("OpenAI API key not found in SessionManager or environment. Ragas evaluation might fail or use cached results if applicable.")
+
+                    # 3. Run the evaluation
+                    eval_results_df = run_ragas_evaluation(sm) # This calls the updated util function
+                    
+                    st.subheader("Ragas Evaluation Results")
+                    
+                    if 'ragas_score' in eval_results_df.columns:
+                         st.metric("Overall Ragas Score (if provided by Ragas version)", f"{eval_results_df['ragas_score'].mean():.3f}")
+                    
+                    # Display individual metrics that were run
+                    # These are the Ragas metric names by default
+                    possible_metrics = ["faithfulness", "answer_relevancy", "context_precision", "context_recall", "answer_correctness"]
+                    
+                    cols = st.columns(len([m for m in possible_metrics if m in eval_results_df.columns]))
+                    col_idx = 0
+                    for metric_name in possible_metrics:
+                        if metric_name in eval_results_df.columns:
+                            # Calculate mean, handling potential non-numeric or all-NaN cases
+                            metric_series = pd.to_numeric(eval_results_df[metric_name], errors='coerce')
+                            if not metric_series.empty and metric_series.notna().any():
+                                mean_score = metric_series.mean()
+                                cols[col_idx].metric(f"{metric_name.replace('_', ' ').title()}", f"{mean_score:.3f}")
+                            else:
+                                cols[col_idx].metric(f"{metric_name.replace('_', ' ').title()}", "N/A")
+                            col_idx += 1
+                    
                     st.dataframe(eval_results_df, use_container_width=True)
-                    # sm.save_evaluation_results(eval_results_df.to_dict()) # If you want to store results in SM
+
+                    # Inform user about context_recall if GT contexts were not used
+                    if COL_CONTEXTS_GROUND_TRUTH not in current_qa_data_df.columns or not current_qa_data_df[COL_CONTEXTS_GROUND_TRUTH].notna().any():
+                        if "context_recall" not in eval_results_df.columns: # Check if it wasn't even run
+                            st.info(f"Note: '{COL_CONTEXTS_GROUND_TRUTH}' column was not found or was empty in your QA data, so 'Context Recall' based on this specific input was not performed by Ragas or might reflect a different calculation.")
+                        elif "context_recall" in eval_results_df.columns: # It ran, but inform about interpretation
+                             st.info(f"Note: 'Context Recall' was computed. Without user-provided '{COL_CONTEXTS_GROUND_TRUTH}', its score reflects Ragas's assessment based on other available data (like the ground truth answer).")
+
             except Exception as e:
-                st.error(f"Evaluation failed: {e}")
+                st.error(f"An error occurred during the Ragas evaluation process: {e}")
+                import traceback
+                st.error(traceback.format_exc())
+
 elif not app_is_configured:
-    st.warning("Evaluation requires a valid API key and configured models.")
-elif current_qa_data_df is None:
-    st.warning("Please upload a QA test set to run evaluation.")
+    st.warning("RAG evaluation requires a valid API key and configured models in Setup.")
+elif current_qa_data_df is None or current_qa_data_df.empty:
+    st.warning("Please upload a QA test set (CSV with 'question' and 'answer' columns) to run evaluation.")
 elif sm.index is None:
-    st.warning("Please process documents and create an index to run evaluation.")
+    st.warning("Please upload and process documents to create an index before running evaluation.")
