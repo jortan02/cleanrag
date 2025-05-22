@@ -1,71 +1,94 @@
-from llama_index.llms.openai import OpenAI
+from llama_index.llms.openai import OpenAI as LlamaOpenAI # Alias for clarity
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.settings import Settings
-import streamlit as st
-import openai
+from openai import OpenAI as OpenAIClient # For validation client
 
-def update_api_key(provider: str, key: str):
-    """Update API key for a specific provider."""
-    st.session_state.api_keys[provider] = key
+# Use TYPE_CHECKING for SessionManager to avoid circular imports if SessionManager is in another file
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .session_manager import SessionManager # Assuming SessionManager is in utils.session_manager
 
+def configure_llama_index_settings(sm: 'SessionManager'):
+    """
+    Configures global LlamaIndex settings (Settings.llm and Settings.embed_model)
+    based on the current settings stored in SessionManager.
 
-def get_api_key(provider: str) -> str:
-    """Get API key for a specific provider."""
-    return st.session_state.api_keys.get(provider, "")
+    This function should be called after API keys or model selections are confirmed
+    and updated in the SessionManager.
+    """
+    api_key = sm.get_api_key("openai") # Get from SessionManager
+    model_settings = sm.get_model_settings() # Get from SessionManager
 
+    embedding_model_name = model_settings.get("embedding_model")
+    llm_model_name = model_settings.get("llm_model")
+    llm_provider = model_settings.get("llm_provider")
 
-def update_model_settings(
-    embedding_model: str = None,
-    llm_model: str = None,
-    llm_provider: str = None
-):
-    """Update model settings. """
-    if embedding_model:
-        st.session_state.model_settings["embedding_model"] = embedding_model
-        # Initialize embedding model
-        if embedding_model.startswith("text-embedding"):
-            # OpenAI embedding
-            embedding_model = OpenAIEmbedding(
-                model=embedding_model,
-                api_key=get_api_key("openai")
-            )
+    # Only configure if the API key is considered valid by the SessionManager
+    if not sm.api_key_valid or not api_key:
+        # Clear existing LlamaIndex settings if API key is not valid or missing
+        # to prevent using stale configurations.
+        Settings.llm = None
+        Settings.embed_model = None
+        print("API key not valid or missing. LlamaIndex global settings cleared.")
+        return
+
+    # Configure Embedding Model
+    if embedding_model_name:
+        if embedding_model_name.startswith("text-embedding"):  # OpenAI embedding
+            try:
+                embed_model = OpenAIEmbedding(
+                    model=embedding_model_name,
+                    api_key=api_key
+                )
+                Settings.embed_model = embed_model
+                print(f"LlamaIndex Settings.embed_model configured to: {embedding_model_name}")
+            except Exception as e:
+                Settings.embed_model = None # Clear on failure
+                print(f"Error configuring LlamaIndex OpenAIEmbedding with {embedding_model_name}: {e}")
+                # Error should be surfaced to user in Home.py
         else:
-            raise Exception(f"Error: The embedding model \'{embedding_model}\' could not be found.")
-        Settings.embed_model = embedding_model
-    if llm_model:
-        st.session_state.model_settings["llm_model"] = llm_model
+            Settings.embed_model = None
+            print(f"Unsupported embedding model for LlamaIndex settings: {embedding_model_name}")
+    else:
+        Settings.embed_model = None # No embedding model specified
+
+    # Configure LLM
+    if llm_model_name and llm_provider:
         if llm_provider == "openai":
-            llm = OpenAI(
-                model=llm_model,
-                api_key=get_api_key("openai")
-            )
+            try:
+                llm = LlamaOpenAI(
+                    model=llm_model_name,
+                    api_key=api_key
+                )
+                Settings.llm = llm
+                print(f"LlamaIndex Settings.llm configured to: {llm_model_name}")
+            except Exception as e:
+                Settings.llm = None # Clear on failure
+                print(f"Error configuring LlamaIndex OpenAI LLM with {llm_model_name}: {e}")
+                # Error should be surfaced to user in Home.py
         else:
-            raise Exception(f"Error: The LLM \'{llm_model}\' could not be found.")
-        Settings.llm = llm
-    if llm_provider:
-        st.session_state.model_settings["llm_provider"] = llm_provider
-
-
-def get_model_settings() -> dict:
-    """Get current model settings."""
-    return st.session_state.model_settings
-
+            Settings.llm = None
+            print(f"Unsupported LLM provider for LlamaIndex settings: {llm_provider}")
+    else:
+        Settings.llm = None # No LLM specified
 
 def validate_openai_key(api_key: str) -> bool:
     """Validate OpenAI API key by making a test request."""
     if not api_key:
         return False
-    
     try:
-        openai.api_key = api_key
-        # Make a minimal API call to validate the key
-        openai.models.list()
+        client = OpenAIClient(api_key=api_key)
+        client.models.list()  # Make a minimal API call to validate the key
         return True
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI API key validation failed: {e}") # Log for debugging
         return False
 
-
-def is_app_configured() -> bool:
-    """Check if the app is properly configured with valid API keys."""
-    openai_key = get_api_key("openai")
-    return bool(openai_key and validate_openai_key(openai_key))
+def is_app_configured(sm: 'SessionManager') -> bool:
+    """
+    Check if the app is properly configured with a valid API key.
+    Relies on SessionManager for the API key validity status and presence.
+    """
+    # sm.api_key_valid is the primary source of truth, set after validation.
+    # Also check if the key string itself is present.
+    return sm.api_key_valid and bool(sm.get_api_key("openai"))
