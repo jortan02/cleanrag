@@ -19,7 +19,6 @@ import os
 import re
 import streamlit as st
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.llms.openai import OpenAI
 from utils.api_config import get_api_key, get_model_settings
 
 
@@ -61,12 +60,10 @@ def extract_text_from_file(file) -> str:
 
 
 def process_document(
-    text: str,
-    splitter_type: SplitterType = "sentence",
-    **kwargs
+    text: str, splitter_type: SplitterType = "sentence", **kwargs
 ) -> List[DocumentChunk]:
     """Process document text into chunks using specified splitter type.
-    
+
     Args:
         text: The text to process
         splitter_type: Type of splitter to use
@@ -86,8 +83,7 @@ def process_document(
         chunk_size = kwargs.pop("chunk_size", 500)
         chunk_overlap = kwargs.pop("chunk_overlap", 50)
         node_parser = SentenceSplitter.from_defaults(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
     else:  # semantic splitting
         # Extract semantic splitter specific parameters
@@ -95,11 +91,11 @@ def process_document(
         breakpoint_threshold = kwargs.pop("breakpoint_percentile_threshold", 95)
         node_parser = SemanticSplitterNodeParser.from_defaults(
             buffer_size=buffer_size,
-            breakpoint_percentile_threshold=breakpoint_threshold
+            breakpoint_percentile_threshold=breakpoint_threshold,
         )
-    
+
     nodes = node_parser.get_nodes_from_documents([doc])
-    
+
     # Convert nodes to DocumentChunks
     chunks = []
     for i, node in enumerate(nodes):
@@ -107,7 +103,11 @@ def process_document(
             DocumentChunk(
                 text=node.text,
                 start_idx=node.start_char_idx if hasattr(node, "start_char_idx") else 0,
-                end_idx=node.end_char_idx if hasattr(node, "end_char_idx") else len(node.text),
+                end_idx=(
+                    node.end_char_idx
+                    if hasattr(node, "end_char_idx")
+                    else len(node.text)
+                ),
                 chunk_id=i,
                 metadata=node.metadata,
             )
@@ -148,41 +148,20 @@ def create_chunk_dataframe(chunks: List[DocumentChunk]) -> pd.DataFrame:
 
 
 def create_index_from_documents(
-    documents: List[Document],
-    vector_store_type: str = "simple"
+    documents: List[Document], vector_store_type: str = "simple"
 ) -> VectorStoreIndex:
     """Create a vector store index from a list of documents.
-    
+
     Args:
         documents: List of LlamaIndex documents
         vector_store_type: Type of vector store to use ("simple" or "faiss")
-    
+
     Returns:
         VectorStoreIndex: The created index
     """
     # Get model settings
     settings = get_model_settings()
-    
-    # Initialize embedding model
-    if settings["embedding_model"].startswith("text-embedding"):
-        # OpenAI embedding
-        embedding_model = OpenAIEmbedding(
-            model=settings["embedding_model"],
-            api_key=get_api_key("openai")
-        )
-    else:
-        raise Exception(f"Error: The embedding model \'{settings['embedding_model']}\' could not be found.")
-    
-    # Initialize LLM
-    if settings["llm_provider"] == "openai":
-        llm = OpenAI(
-            model=settings["llm_model"],
-            api_key=get_api_key("openai")
-        )
-    else:
-        raise Exception(f"Error: The LLM \'{settings['llm_provider']}\' could not be found.")
 
-    
     # Create vector store
     if vector_store_type == "simple":
         vector_store = SimpleVectorStore()
@@ -195,27 +174,9 @@ def create_index_from_documents(
         elif settings["embedding_model"] == "all-mpnet-base-v2":
             dimension = 768
         vector_store = FaissVectorStore(faiss_index=faiss.IndexFlatL2(dimension))
-    
+
     # Create and return index
     return VectorStoreIndex.from_documents(
         documents,
         vector_store=vector_store,
-        embed_model=embedding_model,
-        llm=llm
     )
-
-
-def get_file_size_mb(file) -> float:
-    """Get the size of a file in megabytes."""
-    # Get file size in bytes
-    file.seek(0, 2)  # Seek to end of file
-    size_bytes = file.tell()  # Get current position (file size)
-    file.seek(0)  # Reset file pointer to beginning
-    
-    # Convert to megabytes
-    return size_bytes / (1024 * 1024)
-
-
-def format_size_mb(size_mb: float) -> str:
-    """Format a size in megabytes to a human-readable string."""
-    return f"{size_mb:.1f} MB"

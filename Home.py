@@ -2,6 +2,7 @@ import streamlit as st
 import asyncio
 from utils.api_config import is_app_configured
 from utils.data_utils import (
+    clear_session_chat_history,
     initialize_session_state,
     store_processed_document,
     get_all_processed_documents,
@@ -11,7 +12,9 @@ from utils.data_utils import (
     get_processing_options,
     get_uploaded_files,
     store_uploaded_files,
-    clear_processed_documents
+    clear_processed_documents,
+    get_session_chat_history,
+    update_session_chat_history,
 )
 from utils.api_config import (
     update_api_key,
@@ -30,6 +33,10 @@ from utils.document_utils import (
 )
 from llama_index.core import Document
 import pandas as pd
+
+from utils.model_utils import generate_response
+from utils.evaluation_utils import evaluate_answers
+
 from config import SUPPORTED_FILE_TYPES, SUPPORTED_QA_FILE_TYPES
 
 
@@ -46,13 +53,20 @@ def handle_api_key_change():
         st.session_state.api_key_valid = False
 
 
-def handle_model_change():
-    """Handle model selection changes"""
+def handle_embedding_model_change():
+    """Handle embedding model selection changes"""
     if st.session_state.get("api_key_valid", False):
         update_model_settings(
             embedding_model=st.session_state.embedding_model,
+        )
+
+
+def handle_llm_change():
+    """Handle LLM model selection changes"""
+    if st.session_state.get("api_key_valid", False):
+        update_model_settings(
             llm_model=st.session_state.llm_model,
-            llm_provider="openai",  # Since we only use OpenAI now
+            llm_provider="openai",
         )
 
 
@@ -206,21 +220,19 @@ st.selectbox(
     index=0 if current_settings["llm_model"] == "gpt-3.5-turbo" else 1,
     help="Select the OpenAI model to use",
     key="llm_model",
-    on_change=handle_model_change,
-    disabled=not is_app_configured()
+    on_change=handle_llm_change,
+    disabled=not is_app_configured(),
 )
 
 # Embedding Model Selection with callback
 st.selectbox(
     "Embedding Model",
     options=["text-embedding-3-small", "text-embedding-3-large"],
-    index=(
-        0 if current_settings["embedding_model"] == "text-embedding-3-small" else 1
-    ),
+    index=(0 if current_settings["embedding_model"] == "text-embedding-3-small" else 1),
     help="Select the OpenAI embedding model to use",
     key="embedding_model",
-    on_change=handle_model_change,
-    disabled=not is_app_configured()
+    on_change=handle_embedding_model_change,
+    disabled=not is_app_configured(),
 )
 
 # Upload Section
@@ -384,7 +396,7 @@ if st.button("Process Documents", type="primary", disabled=not is_app_configured
             st.error(f"Error creating index: {str(e)}")
     else:
         st.warning("Please upload at least one document.")
-        
+
 processed_docs = get_all_processed_documents()
 if processed_docs:
     for i, doc_data in enumerate(processed_docs):
@@ -431,10 +443,41 @@ qa_data = get_qa_data()
 if qa_data is not None:
     st.dataframe(qa_data.head(), use_container_width=True)
 
+
 # Chat Section
 st.header("Chat 💬", anchor="chat")
-# Chat interface will go here
+
+# Chatbox
+with st.container(border=True):
+    chat_history = get_session_chat_history()
+
+    # Display previous chat messages with proper styling
+    for i, message in enumerate(chat_history):
+        role = "assistant" if i % 2 == 1 else "user"
+        with st.chat_message(role):
+            st.write(message)
+
+# Chat input & send button layout
+col1, col2 = st.columns([4, 1])
+with col1:
+    user_input = st.text_input("Enter your message:", label_visibility="collapsed", key="user_input")
+with col2:
+    if st.button("Send", use_container_width=True, disabled=not user_input and is_app_configured()):
+        if user_input:
+            update_session_chat_history(user_input)
+            response = generate_response(user_input)
+            update_session_chat_history(response)
+            st.rerun()
+
+if st.button("Clear Chat History", use_container_width=True):
+    clear_session_chat_history()
+    st.rerun()
 
 # Evaluate Section
 st.header("Evaluate 📊", anchor="evaluate")
-# Evaluation interface will go here
+
+if qa_data:
+    if st.button("Run Evaluation"):
+        results = evaluate_answers(None)
+        st.write("### Evaluation Results")
+        st.write(results)

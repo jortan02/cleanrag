@@ -1,3 +1,6 @@
+from llama_index.llms.openai import OpenAI
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.settings import Settings
 import streamlit as st
 import openai
 
@@ -19,8 +22,26 @@ def update_model_settings(
     """Update model settings. """
     if embedding_model:
         st.session_state.model_settings["embedding_model"] = embedding_model
+        # Initialize embedding model
+        if embedding_model.startswith("text-embedding"):
+            # OpenAI embedding
+            embedding_model = OpenAIEmbedding(
+                model=embedding_model,
+                api_key=get_api_key("openai")
+            )
+        else:
+            raise Exception(f"Error: The embedding model \'{embedding_model}\' could not be found.")
+        Settings.embed_model = embedding_model
     if llm_model:
         st.session_state.model_settings["llm_model"] = llm_model
+        if llm_provider == "openai":
+            llm = OpenAI(
+                model=llm_model,
+                api_key=get_api_key("openai")
+            )
+        else:
+            raise Exception(f"Error: The LLM \'{llm_model}\' could not be found.")
+        Settings.llm = llm
     if llm_provider:
         st.session_state.model_settings["llm_provider"] = llm_provider
 

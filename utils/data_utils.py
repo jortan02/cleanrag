@@ -53,6 +53,10 @@ def initialize_session_state():
         }
     if "vector_store_type" not in st.session_state:
         st.session_state.vector_store_type = "simple"
+        
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []  
+    
 
 def save_processed_chunks(filename: str, chunks: List[DocumentChunk]):
     """Save processed chunks to session state."""
@@ -184,3 +188,15 @@ def clear_session_data():
     st.session_state.qa_data = None
     st.session_state.evaluation_results = {}
     st.session_state.uploaded_files = {}
+
+def get_session_chat_history():
+    """Get the chat history from session state."""
+    return st.session_state.chat_history
+
+def update_session_chat_history(message: str):
+    """Update the chat history in session state."""
+    st.session_state.chat_history.append(message)
+
+def clear_session_chat_history():
+    """Clear the chat history in session state."""
+    st.session_state.chat_history = []
