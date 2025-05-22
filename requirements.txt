@@ -1,7 +1,8 @@
 streamlit
 pandas
-llama-index
-llama-index-llms-openai
-llama-index-vector-stores-faiss
+openai>=1.16.0,<1.26.0
+llama-index>=0.10.30,<0.10.50 
+llama-index-llms-openai>=0.1.15,<0.1.25
+llama-index-vector-stores-faiss>=0.1.2,<0.1.5
 faiss-cpu
 ragas
