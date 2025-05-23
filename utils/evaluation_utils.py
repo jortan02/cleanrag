@@ -1,3 +1,4 @@
+import traceback
 from typing import List, Dict, Any, Optional
 import pandas as pd
 from datasets import Dataset # Ragas uses Hugging Face Datasets
@@ -111,69 +112,75 @@ def generate_rag_outputs_for_evaluation(sm: 'SessionManager') -> List[Dict[str, 
     return rag_outputs
 
 
-def run_ragas_evaluation(sm: 'SessionManager') -> pd.DataFrame:
+def run_ragas_evaluation_core( # Renamed to indicate it's the core Ragas step
+    qa_data_df_for_ragas: pd.DataFrame, # Expects DataFrame with Ragas columns
+    metrics_to_run: List[Any]
+) -> pd.DataFrame:
     """
-    Prepares data and runs Ragas evaluation on the LlamaIndex RAG pipeline's outputs.
-    Adapts metrics based on whether ground_truth_contexts are provided.
+    Core Ragas evaluation logic.
+    Args:
+        qa_data_df_for_ragas: DataFrame formatted for Ragas (question, answer, contexts, ground_truth, optional ground_truth_contexts).
+        metrics_to_run: List of Ragas metric functions.
+    Returns:
+        pd.DataFrame: The Ragas results.
     """
-    print("Step 1: Generating RAG outputs for Ragas evaluation...")
-    rag_pipeline_outputs = generate_rag_outputs_for_evaluation(sm)
-
-    if not rag_pipeline_outputs:
-        return pd.DataFrame({"message": ["No RAG outputs were generated for evaluation."]})
-
-    # Prepare data for Ragas Dataset format
-    # Ragas expects: 'question', 'answer' (generated), 'contexts' (retrieved), 'ground_truth' (GT answer)
-    # and optionally 'ground_truth_contexts'
-    
-    dataset_dict_for_ragas = {
-        "question": [item[COL_QUESTION] for item in rag_pipeline_outputs],
-        "answer": [item[COL_ANSWER_GENERATED] for item in rag_pipeline_outputs],
-        "contexts": [item[COL_CONTEXTS_RETRIEVED] for item in rag_pipeline_outputs],
-        "ground_truth": [item[COL_ANSWER_GROUND_TRUTH] for item in rag_pipeline_outputs]
-    }
-    
-    # Check if the ground_truth_contexts key is present in the first item (implies it was processed)
-    # This means the column existed in the input QA data.
-    has_ground_truth_contexts_data = False
-    if rag_pipeline_outputs and COL_CONTEXTS_GROUND_TRUTH in rag_pipeline_outputs[0]:
-        has_ground_truth_contexts_data = True
-        dataset_dict_for_ragas["ground_truth_contexts"] = [
-            item.get(COL_CONTEXTS_GROUND_TRUTH, []) for item in rag_pipeline_outputs
-        ]
-        print(f"User-provided '{COL_CONTEXTS_GROUND_TRUTH}' will be used for Ragas context_recall.")
-
-    hf_dataset = Dataset.from_dict(dataset_dict_for_ragas)
-
-    # Define Ragas metrics
-    metrics_to_evaluate = [
-        faithfulness,
-        answer_relevancy,
-        answer_correctness, # Compares 'answer' (generated) with 'ground_truth' (GT answer)
-        context_precision,  # Compares 'contexts' (retrieved) with 'question'
-    ]
-
-    if has_ground_truth_contexts_data:
-        # context_recall is most meaningful when user provides ideal ground_truth_contexts
-        metrics_to_evaluate.append(context_recall)
-        print("Adding 'context_recall' to Ragas metrics as ground truth contexts are available.")
-    else:
-        print(f"'{COL_CONTEXTS_GROUND_TRUTH}' not available or empty. 'Context Recall' metric will not be explicitly added based on this key, Ragas might behave differently for this metric.")
-        # Ragas's context_recall might still run but its interpretation changes without this key.
-        # Some versions might require it. If errors occur, this is a place to check.
-
-    print("Step 2: Running Ragas evaluation with selected metrics...")
+    hf_dataset = Dataset.from_pandas(qa_data_df_for_ragas)
+    print(f"Running Ragas evaluation with metrics: {[m.name for m in metrics_to_run]}")
     try:
         result = evaluate(
             dataset=hf_dataset,
-            metrics=metrics_to_evaluate,
-            # handle_exceptions=False # Set to True to get partial results if some rows fail
+            metrics=metrics_to_run,
         )
         results_df = result.to_pandas()
-        print("Ragas evaluation completed.")
+        print("Ragas evaluation core step completed.")
         return results_df
     except Exception as e:
-        print(f"Error during Ragas evaluation run: {e}")
-        error_df = pd.DataFrame(dataset_dict_for_ragas) # Show what data was passed to Ragas
+        print(f"Error during Ragas core evaluation: {e}")
+        # Return a DataFrame with an error column for easier debugging in Home.py
+        error_df = qa_data_df_for_ragas.copy() # Show what data was passed
         error_df['ragas_evaluation_error'] = str(e)
+        error_df['ragas_evaluation_traceback'] = traceback.format_exc()
         return error_df
+
+# This function will be called from Home.py
+def prepare_and_run_ragas_evaluation(sm: 'SessionManager') -> Optional[pd.DataFrame]:
+    """
+    Prepares data by generating RAG outputs and then runs Ragas evaluation.
+    Returns the Ragas results DataFrame or None if preparation fails.
+    """
+    print("Preparing RAG outputs for evaluation...")
+    rag_pipeline_outputs = generate_rag_outputs_for_evaluation(sm) # List[Dict]
+
+    if not rag_pipeline_outputs:
+        return None
+
+    # Prepare DataFrame for Ragas
+    dataset_for_ragas_list = []
+    has_ground_truth_contexts_data = False
+    if rag_pipeline_outputs and COL_CONTEXTS_GROUND_TRUTH in rag_pipeline_outputs[0]:
+        has_ground_truth_contexts_data = True
+
+    for item in rag_pipeline_outputs:
+        row = {
+            "question": item[COL_QUESTION],
+            "answer": item[COL_ANSWER_GENERATED], # RAG's answer
+            "contexts": item[COL_CONTEXTS_RETRIEVED], # RAG's contexts
+            "ground_truth": item[COL_ANSWER_GROUND_TRUTH] # User's GT answer
+        }
+        if has_ground_truth_contexts_data:
+            row["ground_truth_contexts"] = item.get(COL_CONTEXTS_GROUND_TRUTH, [])
+        dataset_for_ragas_list.append(row)
+    
+    qa_data_for_ragas_df = pd.DataFrame(dataset_for_ragas_list)
+
+    # Define Ragas metrics
+    metrics_to_run = [
+        faithfulness, answer_relevancy, answer_correctness, context_precision,
+    ]
+    if has_ground_truth_contexts_data:
+        metrics_to_run.append(context_recall)
+        print(f"'{COL_CONTEXTS_GROUND_TRUTH}' column found. Adding 'context_recall' to Ragas metrics.")
+    else:
+        print(f"'{COL_CONTEXTS_GROUND_TRUTH}' column not found. 'Context Recall' specific to GT contexts will not be run (Ragas might use a fallback).")
+
+    return run_ragas_evaluation_core(qa_data_for_ragas_df, metrics_to_run)
