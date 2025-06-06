@@ -1,15 +1,14 @@
 import traceback
 from typing import List, Dict, Any, Optional
 import pandas as pd
-from datasets import Dataset # Ragas uses Hugging Face Datasets
+from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import (
     faithfulness,
     answer_relevancy,
-    context_recall,      # Will be conditional
+    context_recall,
     context_precision,
-    answer_correctness,  # Assumes 'answer' in CSV is ground_truth_answer
-    # answer_similarity # Could be added as another option
+    answer_correctness,
 )
 import ast # For safely evaluating string representations of lists from CSV
 
@@ -132,17 +131,17 @@ def run_ragas_evaluation_core( # Renamed to indicate it's the core Ragas step
             metrics=metrics_to_run,
         )
         results_df = result.to_pandas()
+        results_df["retrieved_contexts"] = results_df["retrieved_contexts"].apply(lambda x: "\n--- END OF CONTEXT ---\n".join(x))
         print("Ragas evaluation core step completed.")
         return results_df
     except Exception as e:
         print(f"Error during Ragas core evaluation: {e}")
-        # Return a DataFrame with an error column for easier debugging in Home.py
+        # Return a DataFrame with an error column for easier debugging
         error_df = qa_data_df_for_ragas.copy() # Show what data was passed
         error_df['ragas_evaluation_error'] = str(e)
         error_df['ragas_evaluation_traceback'] = traceback.format_exc()
         return error_df
 
-# This function will be called from Home.py
 def prepare_and_run_ragas_evaluation(sm: 'SessionManager') -> Optional[pd.DataFrame]:
     """
     Prepares data by generating RAG outputs and then runs Ragas evaluation.

@@ -1,12 +1,12 @@
-from llama_index.llms.openai import OpenAI as LlamaOpenAI # Alias for clarity
+from llama_index.llms.openai import OpenAI as LlamaOpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core.settings import Settings
-from openai import OpenAI as OpenAIClient # For validation client
+from openai import OpenAI as OpenAIClient
 
-# Use TYPE_CHECKING for SessionManager to avoid circular imports if SessionManager is in another file
+# Avoid circular imports if SessionManager is in another file
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .session_manager import SessionManager # Assuming SessionManager is in utils.session_manager
+    from .session_manager import SessionManager
 
 def configure_llama_index_settings(sm: 'SessionManager'):
     """

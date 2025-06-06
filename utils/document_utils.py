@@ -10,6 +10,7 @@ from llama_index.core import Document
 from llama_index.core.schema import BaseNode
 from llama_index.vector_stores.faiss import FaissVectorStore
 from llama_index.core.settings import Settings
+from config import DEFAULT_BUFFER_SIZE, DEFAULT_BREAKPOINT_THRESHOLD, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP
 import faiss
 
 
@@ -56,18 +57,23 @@ def process_document(
     if splitter_type == "sentence":
         chunk_size = kwargs.get("chunk_size")
         chunk_overlap = kwargs.get("chunk_overlap")
+        
+        if not chunk_size and not chunk_overlap:
+            raise ValueError(
+                "SentenceSplitter requires a chunk size and chunk overlap."
+            )
+        
         node_parser = SentenceSplitter.from_defaults(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
-    elif splitter_type == "semantic":
+    else: # splitter_type == "semantic"
         buffer_size = kwargs.get("buffer_size")
         breakpoint_threshold = kwargs.get("breakpoint_percentile_threshold")
         embed_model_override = kwargs.get("embed_model")
 
-        if not Settings.embed_model and not embed_model_override:
+        if not Settings.embed_model and not embed_model_override and not buffer_size and not breakpoint_threshold:
             raise ValueError(
-                "SemanticSplitter requires an embedding model. "
-                "Ensure Settings.embed_model is configured or pass embed_model in kwargs."
+                "SemanticSplitter requires an embedding model, buffer size, and breakpoint threshold."
             )
 
         node_parser = SemanticSplitterNodeParser.from_defaults(
@@ -75,9 +81,6 @@ def process_document(
             breakpoint_percentile_threshold=breakpoint_threshold,
             embed_model=embed_model_override,  # Will use Settings.embed_model if None
         )
-    else:
-        raise ValueError(f"Unsupported splitter_type: {splitter_type}")
-
     nodes = node_parser.get_nodes_from_documents([doc_in])
     return nodes
 
@@ -123,7 +126,6 @@ def create_chunk_dataframe(nodes: List[BaseNode]) -> pd.DataFrame:
                 "End Index": (
                     node.end_char_idx if node.end_char_idx is not None else "N/A"
                 ),
-                # "Metadata": str(node.metadata) if node.metadata else "None",
             }
             for i, node in enumerate(nodes)
         ]
@@ -142,38 +144,45 @@ def create_index_from_documents(
 
     if vector_store_type == "simple":
         vector_store = SimpleVectorStore()
-    elif vector_store_type == "faiss":
+    else: # vector_store_type == "faiss"
         dimension = None
-        if hasattr(Settings.embed_model, "embed_dim"):
+        if hasattr(Settings.embed_model, "embed_dim") and Settings.embed_model.embed_dim is not None:
             dimension = Settings.embed_model.embed_dim
-        elif hasattr(
-            Settings.embed_model, "model_name"
-        ):  # Fallback for common identifiable models
+        # Fallback for known model names if embed_dim is not directly available
+        elif hasattr(Settings.embed_model, "model_name"):
             model_name_from_settings = Settings.embed_model.model_name
-            if model_name_from_settings == "text-embedding-3-small":
-                dimension = 1536
-            elif model_name_from_settings == "text-embedding-3-large":
-                dimension = 3072
-            elif model_name_from_settings == "text-embedding-ada-002":
-                dimension = 1536
+            model_dimension_map = {
+                "text-embedding-3-small": 1536,
+                "text-embedding-3-large": 3072,
+                "text-embedding-ada-002": 1536,
+            }
+            if model_name_from_settings in model_dimension_map:
+                dimension = model_dimension_map[model_name_from_settings]
             else:
-                raise ValueError(f"Unknown embed_model: {model_name_from_settings}")
+                print(f"Warning: FAISS dimension fallback for model '{model_name_from_settings}' not found. Attempting to infer dimension.")
+                # Attempt to infer dimension
+                try:
+                    dummy_embedding = Settings.embed_model.get_text_embedding("test")
+                    dimension = len(dummy_embedding)
+                    print(f"Inferred FAISS dimension as {dimension} for model '{model_name_from_settings}'.")
+                except Exception as e:
+                    raise ValueError(
+                        f"Could not determine embedding dimension for FAISS. Model '{model_name_from_settings}' "
+                        f"does not have 'embed_dim', is not in known mappings, and failed to infer dimension: {e}. "
+                        f"Current embed_model type: {type(Settings.embed_model).__name__}."
+                    )
 
         if dimension is None:
+            # This case should ideally be caught by the logic above.
             raise ValueError(
                 "Could not determine embedding dimension for FAISS from LlamaIndex Settings.embed_model. "
-                f"Ensure Settings.embed_model (current type: {type(Settings.embed_model).__name__}) has an 'embed_dim' attribute or a recognized 'model_name'."
+                f"Ensure Settings.embed_model (current type: {type(Settings.embed_model).__name__}) has an 'embed_dim' attribute, a recognized 'model_name', or supports inference."
             )
 
         faiss_index = faiss.IndexFlatL2(dimension)
         vector_store = FaissVectorStore(faiss_index=faiss_index)
-    else:
-        raise ValueError(f"Unsupported vector_store_type: {vector_store_type}")
 
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
-
-    # This will use the global Settings.node_parser to parse the documents into nodes internally.
-    # Ensure Settings.node_parser is configured by api_config.configure_llama_index_settings(sm).
     index = VectorStoreIndex.from_documents(
         documents,
         storage_context=storage_context,

@@ -1,6 +1,5 @@
 import io
 import streamlit as st
-import asyncio
 import pandas as pd
 from llama_index.core import Document
 from llama_index.core.settings import Settings
@@ -27,24 +26,12 @@ from config import (
     COL_CONTEXTS_GROUND_TRUTH,
 )
 import json
-import base64
 from datetime import datetime
 import os
 import traceback
 
-# --- Initialize Session Manager ---
-# This MUST be one of the first Streamlit commands.
-# The SessionManager constructor handles initializing all necessary session state keys.
 sm = SessionManager()
 
-# --- Setup asyncio event loop (if truly necessary for other non-Streamlit parts) ---
-# For Streamlit itself, this is usually not required.
-try:
-    asyncio.get_running_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
-# --- Page Config ---
 st.set_page_config(
     page_title="CleanRAG",
     page_icon="🧹",
@@ -52,40 +39,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- Initial LlamaIndex Configuration Attempt ---
-# If an API key was already validated and stored from a previous session,
-# configure LlamaIndex settings on load.
-if sm.api_key_valid and sm.get_api_key("openai"):
-    # Wrap in a try-except as API key might have become invalid since last validation
-    try:
-        configure_llama_index_settings(sm)
-        print(
-            "LlamaIndex settings configured on page load from existing valid API key."
-        )
-    except Exception as e:
-        print(f"Error configuring LlamaIndex on page load: {e}")
-        # Optionally, mark API key as invalid in session manager if config fails
-        # sm.api_key_valid = False # This might be too aggressive
-
 
 # --- Callback Functions ---
 def handle_api_key_change():
-    """Handle API key changes and validate."""
-    api_key_from_input = st.session_state.openai_key  # Value from the text_input widget
-    if api_key_from_input:
-        is_valid = validate_openai_key(api_key_from_input)
-        sm.api_key_valid = is_valid  # Update SessionManager's flag
-        if is_valid:
-            sm.update_api_key(
-                api_key_from_input
-            )  # Store the valid key in SessionManager
-        else:
-            sm.update_api_key("")  # Clear invalid key in SessionManager if desired
-    else:
-        sm.api_key_valid = False
-        sm.update_api_key("")  # Clear key if input is empty
+    api_key_from_input = sm.openai_key_widget_value
+    is_valid = validate_openai_key(api_key_from_input) if api_key_from_input else False
+    sm.api_key_valid = is_valid
+    sm.update_api_key(api_key_from_input if is_valid else "")
 
-    # (Re)configure LlamaIndex global settings after any key change or validation attempt
     try:
         configure_llama_index_settings(sm)
     except Exception as e:
@@ -93,14 +54,9 @@ def handle_api_key_change():
 
 
 def handle_embedding_model_change():
-    """Handle embedding model selection changes."""
     if sm.api_key_valid:
-        selected_embedding_model = (
-            st.session_state.embedding_model
-        )  # Value from selectbox widget
-        sm.embedding_model = selected_embedding_model  # Update SessionManager
         try:
-            configure_llama_index_settings(sm)  # Re-apply global LlamaIndex settings
+            configure_llama_index_settings(sm)
         except Exception as e:
             st.error(f"Failed to configure embedding model: {e}")
     else:
@@ -110,61 +66,15 @@ def handle_embedding_model_change():
 
 
 def handle_llm_change():
-    """Handle LLM model selection changes."""
     if sm.api_key_valid:
-        selected_llm_model = st.session_state.llm_model  # Value from selectbox widget
-        sm.llm_model = selected_llm_model  # Update SessionManager
-        # Assuming OpenAI provider for this UI element. SessionManager defaults should handle this.
-        # sm.update_model_settings(llm_provider="openai") # If provider can change via UI later
         try:
-            configure_llama_index_settings(sm)  # Re-apply global LlamaIndex settings
+            configure_llama_index_settings(sm)
         except Exception as e:
             st.error(f"Failed to configure LLM: {e}")
     else:
         st.warning(
             "Please ensure your API key is valid before changing model settings."
         )
-
-
-def handle_splitter_change():
-    """Handle splitter type changes.
-    The widget's `key` directly updates `st.session_state.splitter_type`.
-    SessionManager's `splitter_type` property reflects this.
-    This callback ensures processing options are consistently applied based on the NEW type.
-    """
-    new_splitter = sm.splitter_type  # This will be the new value from the selectbox
-    current_vector_store = sm.vector_store_type
-
-    if new_splitter == "sentence":
-        param1 = sm.chunk_size  # Use existing/default sentence chunk_size
-        param2 = sm.chunk_overlap  # Use existing/default sentence chunk_overlap
-    else:  # semantic
-        param1 = sm.buffer_size  # Use existing/default semantic buffer_size
-        param2 = (
-            sm.breakpoint_threshold
-        )  # Use existing/default semantic breakpoint_threshold
-
-    sm.update_processing_options(param1, param2, new_splitter, current_vector_store)
-    # UI will update on rerun due to widget change.
-
-
-def handle_processing_options_change():
-    """Handle processing options changes from sliders or vector_store_type selectbox."""
-    active_splitter = sm.splitter_type  # Current active splitter
-
-    # Values are from the st.session_state.widget_key of the sliders/selectbox
-    if active_splitter == "sentence":
-        param1 = st.session_state.chunk_size
-        param2 = st.session_state.chunk_overlap
-    else:  # semantic
-        param1 = st.session_state.buffer_size
-        param2 = st.session_state.breakpoint_threshold
-
-    new_vector_store_type = st.session_state.vector_store_type
-
-    sm.update_processing_options(param1, param2, active_splitter, new_vector_store_type)
-    # UI will update on rerun.
-
 
 # --- Navigation ---
 st.sidebar.markdown(
@@ -225,75 +135,84 @@ with col4:
 
 # --- Setup Section ---
 st.header("Setup ⚙️", anchor="setup")
+st.subheader("API Key")
 
-# API Keys Section
-st.subheader("API Key")  # Changed to subheader for better hierarchy
-
-# OpenAI API Key with callback
-st.text_input(  # No need to assign to variable if only used by callback via st.session_state
+st.text_input(
     "OpenAI API Key",
-    value=sm.get_api_key("openai"),  # Get initial value from SessionManager
+    value=sm.openai_key_widget_value,
     type="password",
     help="Required for GPT models and OpenAI embeddings.",
-    key="openai_key",  # This key is used by the callback
+    key="openai_key",
     on_change=handle_api_key_change,
 )
 
-# Show validation status directly after input
-if (
-    "openai_key" in st.session_state and st.session_state.openai_key
-):  # Check if key has been entered
+if sm.openai_key_widget_value:
     if sm.api_key_valid:
-        # Success message handled in callback or here for persistence
         st.success("✅ API key is valid.")
     else:
-        # Error message handled in callback or here
         st.error("❌ Invalid API key. Please check and try again.")
-elif not sm.get_api_key("openai"):  # If no key is stored in sm and input is also empty
+elif not sm.get_api_key("openai"):
     st.warning("⚠️ Please enter your OpenAI API key to continue.")
 
 app_is_configured = is_app_configured(sm)
 
 st.subheader("Configuration Management")
-# Import Configuration
 uploaded_config_file = st.file_uploader(
     "Import Configuration File (JSON)",
     type=["json"],
-    key="import_config_uploader",  # This widget key is important
+    key="import_config_uploader",
     disabled=not app_is_configured,
-    accept_multiple_files=False,  # Ensure only one config file
+    accept_multiple_files=False,
 )
+
+loaded_config_data_state = sm.loaded_config_data_state
 
 if uploaded_config_file is not None:
     try:
-        loaded_config_data = json.load(uploaded_config_file)
-        st.success(
-            f"Configuration from '{uploaded_config_file.name}' ready to be applied."
-        )
+        # Store the loaded data in session_state to persist across reruns until applied
+        # This avoids reloading the file on every interaction before clicking "Apply"
+        current_file_id = f"{uploaded_config_file.name}_{uploaded_config_file.size}"
+        if sm.last_uploaded_config_id != current_file_id:
+            loaded_config_data_state = json.load(uploaded_config_file)
+            sm.loaded_config_data_state = loaded_config_data_state
+            sm.last_uploaded_config_id = current_file_id
+            st.success(
+                f"Configuration from '{uploaded_config_file.name}' ready to be applied."
+            )
+        elif loaded_config_data_state:  # Already loaded this file
+            st.success(
+                f"Configuration from '{uploaded_config_file.name}' ready to be applied (already loaded)."
+            )
 
     except json.JSONDecodeError:
         st.error("Invalid JSON file. Please upload a valid configuration JSON.")
+        sm.loaded_config_data_state = None  # Clear on error
     except Exception as e:
         st.error(f"Error loading configuration: {e}")
         st.error(traceback.format_exc())
+        sm.loaded_config_data_state = None  # Clear on error
 
-# Button to apply the loaded settings
+
 if st.button(
     "📥 Apply Loaded Configuration",
     use_container_width=True,
-    disabled=not app_is_configured or uploaded_config_file is None,
+    disabled=not app_is_configured or loaded_config_data_state is None,
     key="apply_loaded_config_button",
 ):
-    sm.load_app_configuration(
-        loaded_config_data
-    )  # Loads settings, updates relevant st.session_state widget keys
+    if loaded_config_data_state:
+        sm.load_app_configuration(loaded_config_data_state)
+        # Clear the stored loaded data after applying to prevent re-application
+        # or to allow a new file to be processed cleanly.
+        sm.loaded_config_data_state = None
+        sm.last_uploaded_config_id = None
+        st.success("Configuration applied successfully! Settings have been updated.")
+        st.rerun()
+    else:
+        st.warning("No configuration data loaded or file was invalid.")
 
-# Export Configuration
+
 config_export_name = f"cleanrag_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
-current_config_dict = (
-    sm.get_app_configuration()
-)  # API key is NOT included by default now
+current_config_dict = sm.get_app_configuration()
 config_json = json.dumps(current_config_dict, indent=2)
 
 st.download_button(
@@ -306,36 +225,37 @@ st.download_button(
     key="export_config_button",
 )
 
-# Model Settings Section
-st.subheader("Model Settings")  # Changed to subheader
-
-# Get current settings for selectbox indices
-current_llm_model = sm.llm_model
-current_embedding_model = sm.embedding_model
-
+st.subheader("Model Settings")
 
 llm_options = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview", "gpt-4o"]
-# Get the current value from session state (which SM ensures is initialized or loaded)
-current_llm_selection = st.session_state.llm_model # This key should be set by SM init or load
 
 st.selectbox(
     "OpenAI Model",
     options=llm_options,
-    # Calculate index based on the current session state value
-    index=llm_options.index(current_llm_selection) if current_llm_selection in llm_options else 0,
+    index=(
+        llm_options.index(sm.llm_model)
+        if sm.llm_model in llm_options
+        else 0
+    ),
     help="Select the OpenAI model to use.",
-    key="llm_model", # This key is managed by SessionManager and this widget
+    key="llm_model",
     on_change=handle_llm_change,
     disabled=not app_is_configured,
 )
 
-embedding_options = ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
-current_embedding_selection = st.session_state.embedding_model
-
+embedding_options = [
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+    "text-embedding-ada-002",
+]
 st.selectbox(
     "Embedding Model",
     options=embedding_options,
-    index=embedding_options.index(current_embedding_selection) if current_embedding_selection in embedding_options else 0,
+    index=(
+        embedding_options.index(sm.embedding_model)
+        if sm.embedding_model in embedding_options
+        else 0
+    ),
     help="Select the OpenAI embedding model to use.",
     key="embedding_model",
     on_change=handle_embedding_model_change,
@@ -345,107 +265,105 @@ st.selectbox(
 
 # --- Upload Section ---
 st.header("Upload & Process 📁", anchor="upload")
-
-# File upload section
 st.subheader("Upload Documents")
 
-# File uploader
 uploaded_files_widget = st.file_uploader(
     "Choose your documents",
     type=SUPPORTED_FILE_TYPES,
     accept_multiple_files=True,
     disabled=not app_is_configured,
-    key="file_uploader_widget",  # Use a distinct key for the widget
+    key="file_uploader_widget",
 )
 if uploaded_files_widget:
-    sm.store_uploaded_files(uploaded_files_widget)  # Store them in session manager
+    sm.store_uploaded_files(uploaded_files_widget)
 
-# Processing options
 st.subheader("Processing Options")
 
 splitter_options = ["sentence", "semantic"]
-current_splitter_selection = st.session_state.splitter_type
-
 st.selectbox(
     "Splitter Type",
     options=splitter_options,
-    index=splitter_options.index(current_splitter_selection) if current_splitter_selection in splitter_options else 0,
+    index=(
+        splitter_options.index(sm.splitter_type)
+        if sm.splitter_type in splitter_options
+        else 0
+    ),
     format_func=lambda x: "Sentence-based" if x == "sentence" else "Semantic",
     help="Choose how to split documents.",
     key="splitter_type",
-    on_change=handle_splitter_change,
     disabled=not app_is_configured,
 )
 
-active_splitter = st.session_state.splitter_type # Read from session state for conditional UI
-
-if active_splitter == "sentence":
+if sm.splitter_type == "sentence":
     col1, col2 = st.columns(2)
     with col1:
         st.slider(
-            "Chunk Size", min_value=100, max_value=2000,
-            value=st.session_state.chunk_size, # Directly use the session state value
+            "Chunk Size",
+            min_value=100,
+            max_value=2000,
+            value=sm.chunk_size,
             step=100,
             key="chunk_size",
-            on_change=handle_processing_options_change,
             disabled=not app_is_configured,
         )
     with col2:
         st.slider(
-            "Chunk Overlap", min_value=0, max_value=200,
-            value=st.session_state.chunk_overlap, # Directly use the session state value
+            "Chunk Overlap",
+            min_value=0,
+            max_value=200,
+            value=sm.chunk_overlap,
             step=10,
             key="chunk_overlap",
-            on_change=handle_processing_options_change,
             disabled=not app_is_configured,
         )
 else:  # semantic
     col1, col2 = st.columns(2)
     with col1:
         st.slider(
-            "Buffer Size", min_value=1, max_value=5,
-            value=st.session_state.buffer_size, # Directly use the session state value
+            "Buffer Size",
+            min_value=1,
+            max_value=5,
+            value=sm.buffer_size,
             step=1,
             key="buffer_size",
-            on_change=handle_processing_options_change,
             disabled=not app_is_configured,
         )
     with col2:
         st.slider(
-            "Breakpoint Threshold", min_value=50, max_value=99,
-            value=st.session_state.breakpoint_threshold, # Directly use the session state value
+            "Breakpoint Threshold",
+            min_value=50,
+            max_value=99,
+            value=sm.breakpoint_threshold,
             step=1,
             key="breakpoint_threshold",
-            on_change=handle_processing_options_change,
             disabled=not app_is_configured,
         )
 
 vector_store_options = ["simple", "faiss"]
-current_vector_store_selection = st.session_state.vector_store_type
-
 st.selectbox(
     "Vector Store Type",
     options=vector_store_options,
-    index=vector_store_options.index(current_vector_store_selection) if current_vector_store_selection in vector_store_options else 0,
+    index=(
+        vector_store_options.index(sm.vector_store_type)
+        if sm.vector_store_type in vector_store_options
+        else 0
+    ),
     format_func=lambda x: "Simple" if x == "simple" else "FAISS",
     help="Choose the vector store type.",
     key="vector_store_type",
-    on_change=handle_processing_options_change,
     disabled=not app_is_configured,
 )
 
-# Process button
-stored_files_for_processing = sm.get_uploaded_files()  # Get latest from SM
+stored_files_for_processing = sm.get_uploaded_files()
 if st.button(
     "🔍 Process Documents",
     type="primary",
     use_container_width=True,
     disabled=not app_is_configured or not stored_files_for_processing,
 ):
-    sm.clear_processed_documents()  # Clears documents and index in SM
-    if stored_files_for_processing:  # Check again due to button state
-        # Ensure LlamaIndex settings are configured before processing documents
-        configure_llama_index_settings(sm)
+    sm.clear_processed_documents()
+    if stored_files_for_processing:
+        configure_llama_index_settings(sm)  # Ensure LlamaIndex settings are current
         progress_bar = st.progress(0, "Initializing document processing...")
         status_text = st.empty()
         total_files = len(stored_files_for_processing)
@@ -459,27 +377,24 @@ if st.button(
                 text = extract_text_from_file(file_data)
                 doc = Document(text=text, metadata={"filename": actual_filename})
 
-                current_splitter_type = sm.splitter_type
-                if current_splitter_type == "sentence":
-                    kwargs = {
+                splitter_params_kwargs = {}
+                if sm.splitter_type == "sentence":
+                    splitter_params_kwargs = {
                         "chunk_size": sm.chunk_size,
                         "chunk_overlap": sm.chunk_overlap,
                     }
                 else:  # semantic
-                    kwargs = {
+                    splitter_params_kwargs = {
                         "buffer_size": sm.buffer_size,
                         "breakpoint_percentile_threshold": sm.breakpoint_threshold,
                     }
 
                 chunks = process_document(
-                    doc, splitter_type=current_splitter_type, **kwargs
-                )  # Pass LlamaIndex Document to process_document
+                    doc, splitter_type=sm.splitter_type, **splitter_params_kwargs
+                )
 
-                stats = get_chunk_statistics(
-                    chunks
-                )  # Assumes chunks are LlamaIndex NodeWithScore or similar
+                stats = get_chunk_statistics(chunks)
                 chunk_df = create_chunk_dataframe(chunks)
-
                 document_data = {
                     "name": actual_filename,
                     "text": text,
@@ -495,6 +410,7 @@ if st.button(
 
             except Exception as e:
                 st.error(f"Error processing {actual_filename}: {str(e)}")
+                st.error(traceback.format_exc())
 
         status_text.text("Creating index from processed documents...")
         try:
@@ -502,9 +418,7 @@ if st.button(
                 data["document"] for data in sm.get_all_processed_documents()
             ]
             if all_docs_for_index:
-                if (
-                    not Settings.embed_model
-                ):  # Check if embed_model was successfully configured
+                if not Settings.embed_model:
                     st.error(
                         "Embedding model not configured. Cannot create index. Please check API key and model settings."
                     )
@@ -512,20 +426,19 @@ if st.button(
                     index = create_index_from_documents(
                         all_docs_for_index,
                         vector_store_type=sm.vector_store_type,
-                        # embed_model will be taken from Settings.embed_model
                     )
-                    sm.index = index  # Store the index in SessionManager
-                    status_text.text("")  # Clear status text
-                    progress_bar.empty()  # Clear progress bar
+                    sm.index = index
+                    status_text.text("")
+                    progress_bar.empty()
                     st.success("Documents processed and indexed successfully!")
-                    st.rerun()  # Rerun to update UI, especially "Index Ready" status
+                    st.rerun()
             else:
                 st.warning(
                     "No documents were successfully processed to create an index."
                 )
-
         except Exception as e:
             st.error(f"Error creating index: {str(e)}")
+            st.error(traceback.format_exc())  # More detailed error
             progress_bar.empty()
             status_text.empty()
     else:
@@ -590,8 +503,7 @@ if qa_file_widget is not None:
             st.error(
                 f"QA file must contain '{COL_QUESTION}' and '{COL_ANSWER_GROUND_TRUTH}' columns."
             )
-            # Optionally clear previously loaded data if new upload is invalid
-            # sm.store_qa_data(None)
+            sm.store_qa_data(None)
         else:
             prev_qa_data = sm.get_qa_data()
             if prev_qa_data is None or not new_qa_data.equals(prev_qa_data):
@@ -607,7 +519,7 @@ if qa_file_widget is not None:
                 st.rerun()
     except Exception as e:
         st.error(f"Error reading or processing QA file: {e}")
-        sm.store_qa_data(None)  # Clear QA data in session manager on error
+        sm.store_qa_data(None)
 
 # Display QA data if available
 current_qa_data_df = sm.get_qa_data()
@@ -620,7 +532,9 @@ if current_qa_data_df is not None:
 st.header("Chat 💬", anchor="chat")
 
 if not sm.index:
-    st.warning("⚠️ Chat functionality requires an index to work. Please ensure an index is available.")
+    st.warning(
+        "⚠️ Chat functionality requires an index to work. Please ensure an index is available."
+    )
 
 
 with st.container(border=True):
@@ -673,13 +587,20 @@ current_qa_data_df = sm.get_qa_data()
 app_is_configured = is_app_configured(sm)
 
 if current_qa_data_df is None or current_qa_data_df.empty or sm.index is None:
-    st.warning("⚠️ Evaluation requires a QA file and an index to work. Please ensure both are available.")
+    st.warning(
+        "⚠️ Evaluation requires a QA file and an index to work. Please ensure both are available."
+    )
 
 st.subheader("Run New Evaluation Experiment")
 
 # Input for experiment name
 exp_name_default = f"Run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-experiment_name = st.text_input("Experiment Name", value=exp_name_default, disabled=not app_is_configured, key="experiment_name_input")
+experiment_name = st.text_input(
+    "Experiment Name",
+    value=exp_name_default,
+    disabled=not app_is_configured,
+    key="experiment_name_input",
+)
 
 if st.button(
     "🧪 Run Evaluation Experiment",
@@ -697,51 +618,85 @@ if st.button(
             f"Running Ragas evaluation for experiment: '{experiment_name}'... This may take a while."
         ):
             try:
-                configure_llama_index_settings(sm) # Ensure LlamaIndex settings are current
+                configure_llama_index_settings(
+                    sm
+                )  # Ensure LlamaIndex settings are current
                 if not Settings.llm or not Settings.embed_model:
-                    st.error("LlamaIndex LLM or Embedding Model not configured. Cannot run evaluation.")
+                    st.error(
+                        "LlamaIndex LLM or Embedding Model not configured. Cannot run evaluation."
+                    )
                 else:
                     openai_api_key = sm.get_api_key("openai")
                     if openai_api_key and not os.getenv("OPENAI_API_KEY"):
                         os.environ["OPENAI_API_KEY"] = openai_api_key
                     elif not openai_api_key and not os.getenv("OPENAI_API_KEY"):
-                        st.warning("OpenAI API key not found. Ragas evaluation might fail.")
+                        st.warning(
+                            "OpenAI API key not found. Ragas evaluation might fail."
+                        )
 
                     # Get current config for logging with results
-                    config_summary = sm.get_app_configuration() 
+                    config_summary = sm.get_app_configuration()
                     # Remove sensitive data or simplify if needed for summary
                     # e.g., config_summary.pop("api_keys", None) is already handled by get_app_configuration
 
                     results_df = prepare_and_run_ragas_evaluation(sm)
 
                     if results_df is not None and not results_df.empty:
-                        if 'ragas_evaluation_error' in results_df.columns:
-                            st.error(f"Ragas evaluation for '{experiment_name}' encountered an error.")
-                            st.dataframe(results_df) # Show data passed and error
+                        if "ragas_evaluation_error" in results_df.columns:
+                            st.error(
+                                f"Ragas evaluation for '{experiment_name}' encountered an error."
+                            )
+                            st.dataframe(results_df)  # Show data passed and error
                         else:
                             # Calculate overall ragas_score if individual scores are present
-                            numeric_metric_cols = [m for m in ["faithfulness", "answer_relevancy", "context_precision", "context_recall", "answer_correctness"] if m in results_df.columns]
+                            numeric_metric_cols = [
+                                m
+                                for m in [
+                                    "faithfulness",
+                                    "answer_relevancy",
+                                    "context_precision",
+                                    "context_recall",
+                                    "answer_correctness",
+                                ]
+                                if m in results_df.columns
+                            ]
                             overall_score = None
                             if numeric_metric_cols:
                                 try:
-                                    overall_score = results_df[numeric_metric_cols].mean(axis=0).mean() # Mean of mean of metrics
-                                except pd.errors. soziale: # Handle non-numeric issues
+                                    overall_score = (
+                                        results_df[numeric_metric_cols]
+                                        .mean(axis=0)
+                                        .mean()
+                                    )  # Mean of mean of metrics
+                                except pd.errors.soziale:  # Handle non-numeric issues
                                     pass
-                                
+
                             run_data = {
                                 "name": experiment_name,
                                 "timestamp": datetime.now().isoformat(),
                                 "config_summary": config_summary,
-                                "results_df_json": results_df.to_json(orient="records", indent=2), # Store DF as JSON string
-                                "ragas_overall_score": overall_score if overall_score is not None else float('nan')
+                                "results_df_json": results_df.to_json(
+                                    orient="records", indent=2
+                                ),  # Store DF as JSON string
+                                "ragas_overall_score": (
+                                    overall_score
+                                    if overall_score is not None
+                                    else float("nan")
+                                ),
                             }
                             sm.add_evaluation_run(run_data)
-                            st.success(f"Evaluation experiment '{experiment_name}' completed and results saved.")
-                            st.rerun() # Rerun to update display of saved runs
+                            st.success(
+                                f"Evaluation experiment '{experiment_name}' completed and results saved."
+                            )
+                            st.rerun()  # Rerun to update display of saved runs
                     else:
-                        st.warning(f"Evaluation for '{experiment_name}' did not produce results.")
+                        st.warning(
+                            f"Evaluation for '{experiment_name}' did not produce results."
+                        )
             except Exception as e:
-                st.error(f"An error occurred during evaluation for '{experiment_name}': {e}")
+                st.error(
+                    f"An error occurred during evaluation for '{experiment_name}': {e}"
+                )
                 st.error(traceback.format_exc())
 
 st.divider()
@@ -755,64 +710,96 @@ run_names = [run["name"] for run in all_runs]
 selected_run_names = st.multiselect(
     "Select evaluation runs to display/compare:",
     options=run_names,
-    default=run_names[-1:] if run_names else [], # Default to last run
-    key="selected_eval_runs_multiselect"
+    default=run_names[-1:] if run_names else [],  # Default to last run
+    key="selected_eval_runs_multiselect",
 )
 
 if selected_run_names:
     for run_name in selected_run_names:
         run_data = sm.get_evaluation_run_by_name(run_name)
         if run_data:
-            with st.expander(f"Results for Experiment: {run_data['name']} (Timestamp: {run_data['timestamp']})", expanded=len(selected_run_names) == 1):
+            with st.expander(
+                f"Results for Experiment: {run_data['name']} (Timestamp: {run_data['timestamp']})",
+                expanded=len(selected_run_names) == 1,
+            ):
                 st.markdown("##### Configuration Used:")
-                st.json(run_data['config_summary'], expanded=False)
-                
+                st.json(run_data["config_summary"], expanded=False)
+
                 st.markdown("##### Ragas Scores:")
-                
-                if 'results_df_json' in run_data and run_data['results_df_json']:
+
+                if "results_df_json" in run_data and run_data["results_df_json"]:
                     try:
-                        json_string_data = run_data['results_df_json']
-                        results_df_from_json = pd.read_json(io.StringIO(json_string_data), orient="records")
+                        json_string_data = run_data["results_df_json"]
+                        results_df_from_json = pd.read_json(
+                            io.StringIO(json_string_data), orient="records"
+                        )
                     except Exception as e_json_read:
-                        st.error(f"Error parsing stored evaluation results for '{run_name}': {e_json_read}")
-                        results_df_from_json = pd.DataFrame() # Empty DF on error
+                        st.error(
+                            f"Error parsing stored evaluation results for '{run_name}': {e_json_read}"
+                        )
+                        results_df_from_json = pd.DataFrame()  # Empty DF on error
                 else:
                     st.warning(f"No detailed Ragas scores found for run '{run_name}'.")
                     results_df_from_json = pd.DataFrame()
-                                
-                if 'ragas_overall_score' in run_data and not pd.isna(run_data['ragas_overall_score']):
-                        st.metric("Mean Ragas Score", f"{run_data['ragas_overall_score']:.3f}")
+
+                if "ragas_overall_score" in run_data and not pd.isna(
+                    run_data["ragas_overall_score"]
+                ):
+                    st.metric(
+                        "Mean Ragas Score", f"{run_data['ragas_overall_score']:.3f}"
+                    )
 
                 # Display individual metrics (similar to above)
-                possible_metrics = ["faithfulness", "answer_relevancy", "context_precision", "context_recall", "answer_correctness"]
-                metrics_to_show = [m for m in possible_metrics if m in results_df_from_json.columns]
-                
+                possible_metrics = [
+                    "faithfulness",
+                    "answer_relevancy",
+                    "context_precision",
+                    "context_recall",
+                    "answer_correctness",
+                ]
+                metrics_to_show = [
+                    m for m in possible_metrics if m in results_df_from_json.columns
+                ]
+
                 if metrics_to_show:
                     metric_cols_display = st.columns(len(metrics_to_show))
                     for idx, metric_name in enumerate(metrics_to_show):
-                        metric_series = pd.to_numeric(results_df_from_json[metric_name], errors='coerce')
+                        metric_series = pd.to_numeric(
+                            results_df_from_json[metric_name], errors="coerce"
+                        )
                         if not metric_series.empty and metric_series.notna().any():
                             mean_score = metric_series.mean()
-                            metric_cols_display[idx].metric(f"{metric_name.replace('_', ' ').title()}", f"{mean_score:.3f}")
+                            metric_cols_display[idx].metric(
+                                f"{metric_name.replace('_', ' ').title()}",
+                                f"{mean_score:.3f}",
+                            )
                         else:
-                            metric_cols_display[idx].metric(f"{metric_name.replace('_', ' ').title()}", "N/A")
-                
+                            metric_cols_display[idx].metric(
+                                f"{metric_name.replace('_', ' ').title()}", "N/A"
+                            )
+
                 st.dataframe(results_df_from_json, use_container_width=True)
 
 # --- Exporting ---
 st.markdown("---")
 st.markdown("#### Export Evaluation Runs")
 
-export_filename_json = f"cleanrag_all_eval_runs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+export_filename_json = (
+    f"cleanrag_all_eval_runs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+)
 
 # Prepare data for JSON export (convert DataFrames within each run to JSON strings if not already)
 runs_for_export = []
 for run_data_orig in all_runs:
     run_copy = run_data_orig.copy()
-    if isinstance(run_copy.get('results_df'), pd.DataFrame): # Should not happen if stored as JSON string
-        run_copy['results_df_json'] = run_copy.pop('results_df').to_json(orient="records", indent=2)
+    if isinstance(
+        run_copy.get("results_df"), pd.DataFrame
+    ):  # Should not happen if stored as JSON string
+        run_copy["results_df_json"] = run_copy.pop("results_df").to_json(
+            orient="records", indent=2
+        )
     runs_for_export.append(run_copy)
-    
+
 all_runs_json = json.dumps(runs_for_export, indent=2)
 
 st.download_button(
@@ -822,9 +809,14 @@ st.download_button(
     use_container_width=True,
     disabled=not all_runs,
     mime="application/json",
-    key="export_all_eval_runs_button"
+    key="export_all_eval_runs_button",
 )
 
-if st.button("🗑️ Clear All Evaluations", use_container_width=True, disabled=not all_runs, key="clear_all_eval_runs_button"):
+if st.button(
+    "🗑️ Clear All Evaluations",
+    use_container_width=True,
+    disabled=not all_runs,
+    key="clear_all_eval_runs_button",
+):
     sm.clear_all_evaluation_runs()
     st.rerun()
