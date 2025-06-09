@@ -1,101 +1,51 @@
-# Streamlit Boilerplate Application
+# CleanRAG
 
-This is a boilerplate Streamlit application that provides a clean starting point for building data applications.
+**CleanRAG** is an interactive tool built with Streamlit, designed to help developers and researchers optimize their Retrieval-Augmented Generation (RAG) pipelines. The application provides a clean UI for uploading documents, configuring chunking and indexing strategies, and evaluating performance—all within a streamlined environment.
 
-## Features
+## 🚀 Key Features
 
-- Clean and modern UI layout
-- Responsive sidebar with controls
-- Two-column layout for content
-- Example charts and data tables
-- Easy to customize and extend
-- Support for both local and hosted modes
-- Environment-based configuration
-- GPU support with CUDA version detection
+- Intuitive interface for document upload and configuration  
+- Support for multiple text splitting and indexing strategies  
+- Integration with OpenAI language and embedding models  
+- Evaluation of RAG performance using the RAGAS framework  
+- Side-by-side configuration comparison for iterative optimization  
 
-## Getting Started
+## 🧠 Technical Highlights
 
-1. Make sure you have Python installed on your system
-2. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file based on `.env.example`:
-   ```bash
-   cp .env.example .env
-   ```
-4. Configure your environment variables in the `.env` file:
-   - Set `LOCAL_MODE=True` for local development
-   - Set `LOCAL_MODE=False` for hosted deployment
-   - Set `USE_GPU=True` to enable GPU support (requires CUDA)
-5. Run the Streamlit application:
-   ```bash
-   streamlit run app.py
-   ```
-
-The application will open in your default web browser at `http://localhost:8501`.
-
-## GPU Requirements
-
-If you plan to use GPU acceleration:
-
-1. Ensure you have a CUDA-capable NVIDIA GPU
-2. Install the appropriate CUDA toolkit for your system
-3. Install the matching cuDNN version
-4. Set `USE_GPU=True` in your `.env` file
-
-The application will automatically detect and display:
-- CUDA version
-- GPU model
-- Available GPU memory
-- Detailed GPU information (in debug mode)
+- Built with **Streamlit** for rapid interface development  
+- Indexing powered by **LlamaIndex** for flexible, ETL-style text chunking and retrieval  
+- Model interaction and embeddings via **OpenAI APIs**  
+- Evaluation using **RAGAS metrics**, including:
+  - Faithfulness  
+  - Context utilization  
+  - Answer relevance  
 
 ## Project Structure
 
-- `app.py`: Main application file
-- `config.py`: Configuration management
-- `utils/gpu_utils.py`: GPU detection and information utilities
-- `requirements.txt`: Project dependencies
-- `README.md`: Project documentation
-- `.env`: Environment variables (create from .env.example)
-- `.env.example`: Example environment configuration
+- `app.py`: Main application entry point  
+- `config.py`: Configuration logic for app settings  
+- `utils/`: Helper functions for chunking, indexing, and evaluation  
+- `requirements.txt`: Python package dependencies  
+- `README.md`: Project documentation  
 
-## Configuration
+## Setup Instructions
 
-The application supports two modes:
-
-### Local Mode
-When `LOCAL_MODE=True`:
-- Uses local models and resources
-- Configure local model settings in `.env`:
-  - `LOCAL_MODEL_PATH`: Path to local models
-  - `USE_GPU`: Enable/disable GPU usage
-
-### Hosted Mode
-When `LOCAL_MODE=False`:
-- Uses hosted API endpoints
-- Configure API settings in `.env`:
-  - `API_KEY`: Your API key
-  - `API_ENDPOINT`: API endpoint URL
-
-### Debug Mode
-Set `DEBUG=True` in `.env` to enable debug information in the sidebar.
-
-## Customization
-
-You can customize this boilerplate by:
-1. Modifying the UI elements in `app.py`
-2. Adding new pages using Streamlit's multi-page app feature
-3. Implementing your own data processing and visualization logic
-4. Adding new configuration options in `config.py`
+1. Ensure you have Python installed  
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the application:
+   ```bash
+   streamlit run app.py
+   ```
+4. Open your browser to `http://localhost:8501` to interact with the app
 
 ## Dependencies
 
-The main dependencies are:
-- streamlit
-- pandas
-- numpy
-- python-dotenv
-- torch (for GPU support)
-
-All dependencies are listed in `requirements.txt`. 
+Core libraries include:
+- `streamlit`
+- `llama-index`
+- `openai`
+- `ragas`
+- `pandas`, `numpy`
